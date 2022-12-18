@@ -1,5 +1,5 @@
 use std::collections::BinaryHeap;
-use crate::types::SimilarUser;
+use crate::similar_user::SimilarUser;
 use std::collections::binary_heap::Iter;
 
 pub(crate) struct TopK {

@@ -1,7 +1,7 @@
 use std::collections::BinaryHeap;
 use crate::topk::TopK;
 
-use crate::types::SimilarUser;
+use crate::similar_user::SimilarUser;
 
 pub(crate) struct RowAccumulator {
     sums: Vec<f64>,

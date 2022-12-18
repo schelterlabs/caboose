@@ -2,7 +2,7 @@ extern crate sprs;
 
 use sprs::{CsMat, TriMat};
 
-mod types;
+mod similar_user;
 mod row_accumulator;
 mod user_similarity_index;
 mod topk;

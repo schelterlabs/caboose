@@ -1,10 +1,9 @@
-use crate::types::SimilarUser;
+use crate::similar_user::SimilarUser;
 use crate::row_accumulator::RowAccumulator;
 use crate::topk::TopK;
 
 use std::clone::Clone;
 use std::collections::binary_heap::Iter;
-use std::iter::Skip;
 use sprs::CsMat;
 
 use crate::utils::zero_out_entry;
@@ -19,12 +18,8 @@ pub(crate) struct UserSimilarityIndex {
 
 impl UserSimilarityIndex {
 
-    pub(crate) fn neighbors(&self, user: usize) -> Skip<Iter<SimilarUser>> {
-        let heap = &self.topk_per_user[user];
-        let skip_size = 0;
-        //let skip_size = if heap.len() > self.k { 1 } else { 0 };
-        // TODO this relies on the heap root being in the first position
-        heap.iter().skip(skip_size)
+    pub(crate) fn neighbors(&self, user: usize) -> Iter<SimilarUser> {
+        self.topk_per_user[user].iter()
     }
 
     pub(crate) fn new(user_representations: CsMat<f64>, k: usize) -> Self {
