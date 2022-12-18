@@ -69,7 +69,8 @@ impl RowAccumulator {
         while self.head != NO_HEAD {
             let other_user = self.head as usize;
 
-            if other_user != user {
+            // We can have zero dot products after deletions
+            if other_user != user && self.sums[other_user] != NONE {
                 let similarity = self.sums[other_user] / (l2norms[user] * l2norms[other_user]);
                 let scored_user = SimilarUser::new(other_user, similarity);
 

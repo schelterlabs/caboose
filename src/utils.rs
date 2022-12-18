@@ -145,26 +145,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_only_one() {
-
-        let k = 1;
-        let mut original_topk = BinaryHeap::with_capacity(k);
-        original_topk.push(SimilarUser::new(1, 0.7071067811865475));
-
-        let result = update_heap(&mut original_topk, SimilarUser::new(3, 0.9999999999999998), k);
-
-        assert!(!matches!(result, HeapUpdateResult::FullUpdateRequired));
-
-        if let HeapUpdateResult::NewTopK(new_topk) = result {
-            assert_eq!(new_topk.len(), 1);
-
-            let n = new_topk.into_sorted_vec();
-
-            check_entry(&n[0], 3, 0.9999999999999998);
-        }
-    }
-
     fn check_entry(entry: &SimilarUser, expected_user: usize, expected_similarity: f64) {
         assert_eq!(entry.user, expected_user);
         assert!((entry.similarity - expected_similarity).abs() < 0.0001);

@@ -323,7 +323,7 @@ mod tests {
         let mut n1: Vec<_> = index.neighbors(1).collect();
         n1.sort();
         assert_eq!(n1.len(), 2);
-        check_entry(n1[0], 3, 0.70710678);
+        check_entry(n1[0], 3, std::f64::consts::FRAC_1_SQRT_2);
         check_entry(n1[1], 2, 0.40824829);
 
         let mut n2: Vec<_> = index.neighbors(2).collect();
@@ -334,7 +334,77 @@ mod tests {
 
         let n3: Vec<_> = index.neighbors(3).collect();
         assert_eq!(n3.len(), 1);
-        check_entry(n3[0], 1, 0.70710678);
+        check_entry(n3[0], 1, std::f64::consts::FRAC_1_SQRT_2);
+    }
+
+    #[test]
+    fn test_mini_example_with_deletion() {
+
+        /*
+        import numpy as np
+
+        A = np.array(
+                [[1, 0, 1, 0, 1],
+                 [0, 1, 0, 1, 0],
+                 [0, 1, 1, 0, 1],
+                 [0, 0, 0, 1, 0]])
+
+        similarity = np.dot(A, A.T)
+        square_mag = np.diag(similarity)
+        inv_square_mag = 1 / square_mag
+        inv_square_mag[np.isinf(inv_square_mag)] = 0
+        inv_mag = np.sqrt(inv_square_mag)
+        cosine = similarity * inv_mag
+        cosine = cosine.T * inv_mag
+
+        print(cosine)
+
+        [[1.         0.         0.66666667 0.        ]
+         [0.         1.         0.40824829 0.70710678]
+         [0.66666667 0.40824829 1.         0.        ]
+         [0.         0.70710678 0.         1.        ]]
+        */
+
+        let num_users = 4;
+        let num_items = 5;
+
+        let triplets = vec![
+            (0, 0, 1.0), (0, 1, 1.0), (0, 2, 1.0), (0, 4, 1.0),
+            (1, 1, 1.0), (1, 3, 1.0),
+            (2, 1, 1.0), (2, 2, 1.0), (2, 4, 1.0),
+            (3, 3, 1.0),
+        ];
+
+        let mut input = TriMat::new((num_users, num_items));
+        for (row, col, val) in triplets {
+            input.add_triplet(row, col, val);
+        }
+
+        let user_representations = input.to_csr();
+        let mut index = UserSimilarityIndex::new(user_representations, 2);
+
+        index.forget(0, 1);
+
+        let mut n0: Vec<_> = index.neighbors(0).collect();
+        n0.sort();
+        assert_eq!(n0.len(), 1);
+        check_entry(n0[0], 2, 0.66666667);
+
+        let mut n1: Vec<_> = index.neighbors(1).collect();
+        n1.sort();
+        assert_eq!(n1.len(), 2);
+        check_entry(n1[0], 3, std::f64::consts::FRAC_1_SQRT_2);
+        check_entry(n1[1], 2, 0.40824829);
+
+        let mut n2: Vec<_> = index.neighbors(2).collect();
+        n2.sort();
+        assert_eq!(n2.len(), 2);
+        check_entry(n2[0], 0, 0.66666667);
+        check_entry(n2[1], 1, 0.40824829);
+
+        let n3: Vec<_> = index.neighbors(3).collect();
+        assert_eq!(n3.len(), 1);
+        check_entry(n3[0], 1, std::f64::consts::FRAC_1_SQRT_2);
     }
 
     fn check_entry(entry: &SimilarUser, expected_user: usize, expected_similarity: f64) {
