@@ -1,18 +1,18 @@
 use crate::types::SimilarUser;
 use crate::row_accumulator::RowAccumulator;
+use crate::topk::TopK;
 
 use std::clone::Clone;
-use std::collections::BinaryHeap;
 use std::collections::binary_heap::Iter;
 use std::iter::Skip;
 use sprs::CsMat;
 
-use crate::utils::{HeapUpdateResult, update_heap};
+use crate::utils::zero_out_entry;
 
 pub(crate) struct UserSimilarityIndex {
     user_representations:  CsMat<f64>,
     user_representations_transposed: CsMat<f64>,
-    topk_per_user: Vec<BinaryHeap<SimilarUser>>,
+    topk_per_user: Vec<TopK>,
     k: usize,
     l2norms: Vec<f64>,
 }
@@ -54,7 +54,7 @@ impl UserSimilarityIndex {
 
         let mut accumulator = RowAccumulator::new(num_items.clone());
 
-        let mut topk_per_user: Vec<BinaryHeap<SimilarUser>> = Vec::with_capacity(num_users);
+        let mut topk_per_user: Vec<TopK> = Vec::with_capacity(num_users);
         for user in 0..num_users {
             for item_index in indptr.outer_inds_sz(user) {
                 let value = data[item_index];
@@ -77,60 +77,7 @@ impl UserSimilarityIndex {
         }
     }
 
-    // fn update_other_users_topk(
-    //     &self,
-    //     user: usize,
-    //     other_user: usize,
-    //     similarity: f64,
-    //     other_topk: &mut BinaryHeap<SimilarUser>,
-    //     users_to_fully_recompute: &mut Vec<usize>
-    // ) {
-    //     let mut already_in_topk = false;
-    //
-    //     for other_users_topk_similar in other_topk.iter() {
-    //         if other_users_topk_similar.user == user {
-    //             already_in_topk = true;
-    //             break
-    //         }
-    //     }
-    //
-    //     let similar_user_to_update = SimilarUser::new(user, similarity);
-    //
-    //     if !already_in_topk {
-    //
-    //         assert!(other_topk.len() >= self.k);
-    //
-    //         let mut top = other_topk.peek_mut().unwrap();
-    //         if similar_user_to_update < *top {
-    //             println!("--C1a: Not in topk, in topk after offer");
-    //             *top = similar_user_to_update;
-    //         } else {
-    //             println!("--C1b: Not in topk, not in topk after offer");
-    //         }
-    //
-    //     } else {
-    //         if other_topk.len() < self.k {
-    //             let update_result = update_heap(other_topk, similar_user_to_update, self.k);
-    //
-    //             //assert_ne!(matches!(HeapUpdateResult::FullUpdateRequired, update_result));
-    //
-    //             if let HeapUpdateResult::NewTopK(mut new_topk) = update_result {
-    //                 std::mem::swap(other_topk, &mut new_topk);
-    //             }
-    //
-    //             println!("--C2: In topk, updated, not full -> no recomp");
-    //         } else {
-    //             let update_result = update_heap(other_topk, similar_user_to_update, self.k);
-    //             if let HeapUpdateResult::NewTopK(mut new_topk) = update_result {
-    //                 std::mem::swap(other_topk, &mut new_topk);
-    //                 println!("--C3a: In topk, updated, no recomp");
-    //             } else {
-    //                 users_to_fully_recompute.push(other_user);
-    //                 println!("--C3b: In topk, recomputation required");
-    //             }
-    //         }
-    //     }
-    // }
+
 
     pub(crate) fn forget(&mut self, user: usize, item: usize) {
 
@@ -139,13 +86,10 @@ impl UserSimilarityIndex {
         let old_value = self.user_representations.get(user, item).unwrap().clone();
 
         println!("-Updating user representations");
-        // For some reason, the set method in sprs don't work...
-        let index = self.user_representations.nnz_index_outer_inner(user, item).unwrap();
-        self.user_representations.data_mut()[index.0] = 0.0;
+        zero_out_entry(&mut self.user_representations, user, item);
         assert_eq!(*self.user_representations.get(user, item).unwrap(), 0.0_f64);
 
-        let index = self.user_representations_transposed.nnz_index_outer_inner(item, user).unwrap();
-        self.user_representations_transposed.data_mut()[index.0] = 0.0;
+        zero_out_entry(&mut self.user_representations_transposed, item, user);
         assert_eq!(*self.user_representations_transposed.get(item, user).unwrap(), 0.0_f64);
 
         println!("-Updating norms");
@@ -164,9 +108,6 @@ impl UserSimilarityIndex {
 
         for item_index in indptr.outer_inds_sz(user) {
             let value = data[item_index];
-
-            println!("{:?} {:?}", indices[item_index], value);
-
             for user_index in indptr_t.outer_inds_sz(indices[item_index]) {
                 accumulator.add_to(indices_t[user_index], data_t[user_index] * value.clone());
             }
@@ -188,22 +129,9 @@ impl UserSimilarityIndex {
 
             let other_topk = &mut self.topk_per_user[other_user];
 
-            /*self.update_other_users_topk(
-                user,
-                other_user,
-                similarity,
-                other_topk,
-                &mut users_to_fully_recompute
-            );*/
 
-            let mut already_in_topk = false;
+            let already_in_topk = other_topk.contains(user);
 
-            for other_users_topk_similar in other_topk.iter() {
-                if other_users_topk_similar.user == user {
-                    already_in_topk = true;
-                    break
-                }
-            }
 
             let similar_user_to_update = SimilarUser::new(user, similarity);
 
@@ -211,33 +139,29 @@ impl UserSimilarityIndex {
 
                 assert!(other_topk.len() >= self.k);
 
-                let mut top = other_topk.peek_mut().unwrap();
-                if similar_user_to_update < *top {
+                let updated = other_topk.offer_non_existing_entry(similar_user_to_update);
+                if updated {
                     println!("--C1a: Not in topk, in topk after offer");
-                    *top = similar_user_to_update;
                 } else {
                     println!("--C1b: Not in topk, not in topk after offer");
                 }
 
             } else {
                 if other_topk.len() < self.k {
-                    let update_result = update_heap(other_topk, similar_user_to_update, self.k);
+                    let full_recompute_required =
+                        other_topk.update_existing_entry(similar_user_to_update, self.k);
 
-                    //assert_ne!(matches!(update_result, FullUpdateRequired));
-
-                    if let HeapUpdateResult::NewTopK(mut new_topk) = update_result {
-                        std::mem::swap(other_topk, &mut new_topk);
-                    }
-
+                    assert!(!full_recompute_required);
                     println!("--C2: In topk, updated, not full -> no recomp");
                 } else {
-                    let update_result = update_heap(other_topk, similar_user_to_update, self.k);
-                    if let HeapUpdateResult::NewTopK(mut new_topk) = update_result {
-                        std::mem::swap(other_topk, &mut new_topk);
-                        println!("--C3a: In topk, updated, no recomp");
-                    } else {
+                    let full_recompute_required =
+                        other_topk.update_existing_entry(similar_user_to_update, self.k);
+
+                    if full_recompute_required {
                         users_to_fully_recompute.push(other_user);
                         println!("--C3b: In topk, recomputation required");
+                    } else {
+                        println!("--C3a: In topk, updated, no recomp");
                     }
                 }
             }

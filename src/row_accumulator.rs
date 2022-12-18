@@ -1,4 +1,5 @@
 use std::collections::BinaryHeap;
+use crate::topk::TopK;
 
 use crate::types::SimilarUser;
 
@@ -62,7 +63,8 @@ impl RowAccumulator {
         user: usize,
         k: usize,
         l2norms: &Vec<f64>
-    ) -> BinaryHeap<SimilarUser> {
+    //) -> BinaryHeap<SimilarUser> {
+    ) -> TopK {
 
         let mut topk_similar_users: BinaryHeap<SimilarUser> = BinaryHeap::with_capacity(k);
 
@@ -90,7 +92,7 @@ impl RowAccumulator {
         }
         self.head = NO_HEAD;
 
-        topk_similar_users
+        TopK::new(topk_similar_users)
     }
 
 }

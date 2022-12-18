@@ -5,6 +5,7 @@ use sprs::{CsMat, TriMat};
 mod types;
 mod row_accumulator;
 mod user_similarity_index;
+mod topk;
 mod utils;
 
 use crate::user_similarity_index::UserSimilarityIndex;
