@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub(crate) struct SimilarUser {
     pub(crate) user: usize,
     pub(crate) similarity: f64,

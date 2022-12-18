@@ -5,8 +5,7 @@ use crate::types::SimilarUser;
 pub(crate) struct RowAccumulator {
     sums: Vec<f64>,
     non_zeros: Vec<isize>,
-    head: isize,
-    k: usize
+    head: isize
 }
 
 const NONE: f64 = 0.0;
@@ -15,12 +14,11 @@ const NO_HEAD: isize = -2;
 
 impl RowAccumulator {
 
-    pub(crate) fn new(num_items: usize, k: usize) -> Self {
+    pub(crate) fn new(num_items: usize) -> Self {
         RowAccumulator {
             sums: vec![NONE; num_items],
             non_zeros: vec![NOT_OCCUPIED; num_items],
             head: NO_HEAD,
-            k,
         }
     }
 
@@ -33,24 +31,49 @@ impl RowAccumulator {
         }
     }
 
+    pub(crate) fn collect_all(
+        &self,
+        user: usize,
+        l2norms: &Vec<f64>,
+    ) -> Vec<SimilarUser> {
+
+        // TODO maybe this could be an iterator and not require allocation
+        let mut similar_users = Vec::new();
+
+        let mut intermediate_head = self.head;
+
+        while intermediate_head != NO_HEAD {
+            let other_user = intermediate_head as usize;
+
+            if other_user != user {
+                let similarity = self.sums[other_user] / (l2norms[user] * l2norms[other_user]);
+                let scored_user = SimilarUser::new(other_user, similarity);
+                similar_users.push(scored_user);
+            }
+
+            intermediate_head = self.non_zeros[other_user];
+        }
+
+        similar_users
+    }
+
     pub(crate) fn topk_and_clear(
         &mut self,
-        current_user_index: usize,
+        user: usize,
+        k: usize,
         l2norms: &Vec<f64>
     ) -> BinaryHeap<SimilarUser> {
 
-        let mut topk_similar_users: BinaryHeap<SimilarUser> = BinaryHeap::with_capacity(self.k);
+        let mut topk_similar_users: BinaryHeap<SimilarUser> = BinaryHeap::with_capacity(k);
 
         while self.head != NO_HEAD {
-            let other_user_index = self.head as usize;
+            let other_user = self.head as usize;
 
-            if other_user_index != current_user_index {
-                let similarity = self.sums[other_user_index] /
-                    (l2norms[current_user_index] * l2norms[other_user_index]);
+            if other_user != user {
+                let similarity = self.sums[other_user] / (l2norms[user] * l2norms[other_user]);
+                let scored_user = SimilarUser::new(other_user, similarity);
 
-                let scored_user = SimilarUser::new(other_user_index, similarity);
-
-                if topk_similar_users.len() < self.k {
+                if topk_similar_users.len() < k {
                     topk_similar_users.push(scored_user);
                 } else {
                     let mut top = topk_similar_users.peek_mut().unwrap();
@@ -60,9 +83,9 @@ impl RowAccumulator {
                 }
             }
 
-            self.head = self.non_zeros[other_user_index];
-            self.sums[other_user_index] = NONE;
-            self.non_zeros[other_user_index] = NOT_OCCUPIED;
+            self.head = self.non_zeros[other_user];
+            self.sums[other_user] = NONE;
+            self.non_zeros[other_user] = NOT_OCCUPIED;
         }
         self.head = NO_HEAD;
 
