@@ -8,7 +8,7 @@ use sprs::CsMat;
 
 use crate::utils::zero_out_entry;
 
-pub(crate) struct UserSimilarityIndex {
+pub struct UserSimilarityIndex {
     user_representations:  CsMat<f64>,
     user_representations_transposed: CsMat<f64>,
     topk_per_user: Vec<TopK>,
@@ -18,11 +18,11 @@ pub(crate) struct UserSimilarityIndex {
 
 impl UserSimilarityIndex {
 
-    pub(crate) fn neighbors(&self, user: usize) -> Iter<SimilarUser> {
+    pub fn neighbors(&self, user: usize) -> Iter<SimilarUser> {
         self.topk_per_user[user].iter()
     }
 
-    pub(crate) fn new(user_representations: CsMat<f64>, k: usize) -> Self {
+    pub fn new(user_representations: CsMat<f64>, k: usize) -> Self {
         let (num_users, num_items) = user_representations.shape();
 
         let mut user_representations_transposed: CsMat<f64> = user_representations.to_owned();
@@ -74,7 +74,7 @@ impl UserSimilarityIndex {
 
 
 
-    pub(crate) fn forget(&mut self, user: usize, item: usize) {
+    pub fn forget(&mut self, user: usize, item: usize) {
 
         let (_, num_items) = self.user_representations.shape();
 

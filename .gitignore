@@ -25,5 +25,5 @@ target/
 *.ipr
 *.iws
 *.iml
-
+.pytest_cache/
 */build/

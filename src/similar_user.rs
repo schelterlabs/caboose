@@ -1,13 +1,13 @@
 use std::cmp::Ordering;
 
 #[derive(PartialEq, Debug, Clone)]
-pub(crate) struct SimilarUser {
-    pub(crate) user: usize,
-    pub(crate) similarity: f64,
+pub struct SimilarUser {
+    pub user: usize,
+    pub similarity: f64,
 }
 
 impl SimilarUser {
-    pub(crate) fn new(user: usize, similarity: f64) -> Self {
+    pub fn new(user: usize, similarity: f64) -> Self {
         SimilarUser { user, similarity }
     }
 }
