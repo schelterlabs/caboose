@@ -25,6 +25,7 @@ impl UserSimilarityIndex {
     pub fn new(user_representations: CsMat<f64>, k: usize) -> Self {
         let (num_users, num_items) = user_representations.shape();
 
+        println!("--Creating transposed copy...");
         let mut user_representations_transposed: CsMat<f64> = user_representations.to_owned();
         user_representations_transposed.transpose_mut();
         user_representations_transposed = user_representations_transposed.to_csr();
@@ -36,6 +37,7 @@ impl UserSimilarityIndex {
         let indices_t = user_representations_transposed.indices();
         let indptr_t = user_representations_transposed.indptr();
 
+        println!("--Computing l2 norms...");
         let l2norms: Vec<f64> = (0..num_users)
             .map(|user| {
                 let mut sum_of_squares: f64 = 0.0;
@@ -47,10 +49,16 @@ impl UserSimilarityIndex {
             })
             .collect();
 
+        println!("--Starting topk computation...");
         let mut accumulator = RowAccumulator::new(num_items.clone());
 
         let mut topk_per_user: Vec<TopK> = Vec::with_capacity(num_users);
         for user in 0..num_users {
+
+            if user % 1000 == 0 {
+                println!("--{}/{} done", user, num_users);
+            }
+
             for item_index in indptr.outer_inds_sz(user) {
                 let value = data[item_index];
                 for user_index in indptr_t.outer_inds_sz(indices[item_index]) {
@@ -80,18 +88,18 @@ impl UserSimilarityIndex {
 
         let old_value = self.user_representations.get(user, item).unwrap().clone();
 
-        println!("-Updating user representations");
+        //println!("-Updating user representations");
         zero_out_entry(&mut self.user_representations, user, item);
         assert_eq!(*self.user_representations.get(user, item).unwrap(), 0.0_f64);
 
         zero_out_entry(&mut self.user_representations_transposed, item, user);
         assert_eq!(*self.user_representations_transposed.get(item, user).unwrap(), 0.0_f64);
 
-        println!("-Updating norms");
+        //println!("-Updating norms");
         let old_l2norm = self.l2norms[user];
         self.l2norms[user] = ((old_l2norm * old_l2norm) - (old_value * old_value)).sqrt();
 
-        println!("-Computing new similarities for user {}", user);
+        //println!("-Computing new similarities for user {}", user);
         let data = self.user_representations.data();
         let indices = self.user_representations.indices();
         let indptr = self.user_representations.indptr();
@@ -120,7 +128,7 @@ impl UserSimilarityIndex {
             let other_user = similar_user.user;
             let similarity = similar_user.similarity;
 
-            println!("Updating topk of user {:?}", other_user);
+            //println!("Updating topk of user {:?}", other_user);
 
             let other_topk = &mut self.topk_per_user[other_user];
 
@@ -137,9 +145,9 @@ impl UserSimilarityIndex {
 
                     let updated = other_topk.offer_non_existing_entry(similar_user_to_update);
                     if updated {
-                        println!("--C1a: Not in topk, in topk after offer");
+                        //println!("--C1a: Not in topk, in topk after offer");
                     } else {
-                        println!("--C1b: Not in topk, not in topk after offer");
+                        //println!("--C1b: Not in topk, not in topk after offer");
                     }
                 }
 
@@ -149,16 +157,16 @@ impl UserSimilarityIndex {
                         other_topk.update_existing_entry(similar_user_to_update, self.k);
 
                     assert!(!full_recompute_required);
-                    println!("--C2: In topk, updated, not full -> no recomp");
+                    //println!("--C2: In topk, updated, not full -> no recomp");
                 } else {
                     let full_recompute_required =
                         other_topk.update_existing_entry(similar_user_to_update, self.k);
 
                     if full_recompute_required {
                         users_to_fully_recompute.push(other_user);
-                        println!("--C3b: In topk, recomputation required");
+                        //println!("--C3b: In topk, recomputation required");
                     } else {
-                        println!("--C3a: In topk, updated, no recomp");
+                        //println!("--C3a: In topk, updated, no recomp");
                     }
                 }
             }
@@ -373,9 +381,7 @@ mod tests {
         let user_representations = input.to_csr();
         let mut index = UserSimilarityIndex::new(user_representations, 2);
 
-        println!("ASDF {:?}", index.neighbors(0));
         index.forget(0, 1);
-        println!("ADSF {:?}", index.neighbors(0));
         index.forget(1, 3);
 
         let mut n0: Vec<_> = index.neighbors(0).collect();
