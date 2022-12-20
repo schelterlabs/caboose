@@ -63,7 +63,6 @@ impl RowAccumulator {
         user: usize,
         k: usize,
         l2norms: &Vec<f64>
-    //) -> BinaryHeap<SimilarUser> {
     ) -> TopK {
 
         let mut topk_similar_users: BinaryHeap<SimilarUser> = BinaryHeap::with_capacity(k);

@@ -61,7 +61,10 @@ impl TopK {
                 new_topk.push(existing_entry.clone());
             }
         }
-        new_topk.push(update);
+
+        if update.similarity != 0.0 {
+            new_topk.push(update);
+        }
 
         self.heap = new_topk;
 
