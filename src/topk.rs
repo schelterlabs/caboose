@@ -2,6 +2,7 @@ use std::collections::BinaryHeap;
 use crate::similar_user::SimilarUser;
 use std::collections::binary_heap::Iter;
 
+#[derive(Clone)]
 pub(crate) struct TopK {
     heap: BinaryHeap<SimilarUser>,
 }

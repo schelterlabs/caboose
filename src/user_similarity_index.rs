@@ -4,7 +4,11 @@ use crate::topk::TopK;
 
 use std::clone::Clone;
 use std::collections::binary_heap::Iter;
+use std::collections::BinaryHeap;
 use sprs::CsMat;
+
+use num_cpus::get_physical;
+use rayon::prelude::*;
 
 use crate::utils::zero_out_entry;
 
@@ -25,7 +29,7 @@ impl UserSimilarityIndex {
     pub fn new(user_representations: CsMat<f64>, k: usize) -> Self {
         let (num_users, num_items) = user_representations.shape();
 
-        println!("--Creating transposed copy...");
+        //println!("--Creating transposed copy...");
         let mut user_representations_transposed: CsMat<f64> = user_representations.to_owned();
         user_representations_transposed.transpose_mut();
         user_representations_transposed = user_representations_transposed.to_csr();
@@ -37,7 +41,8 @@ impl UserSimilarityIndex {
         let indices_t = user_representations_transposed.indices();
         let indptr_t = user_representations_transposed.indptr();
 
-        println!("--Computing l2 norms...");
+        //println!("--Computing l2 norms...");
+        //TODO is it worth to parallelize this?
         let l2norms: Vec<f64> = (0..num_users)
             .map(|user| {
                 let mut sum_of_squares: f64 = 0.0;
@@ -49,7 +54,36 @@ impl UserSimilarityIndex {
             })
             .collect();
 
-        println!("--Starting topk computation...");
+        let num_cores = get_physical();
+        let user_range = (0..num_users).collect::<Vec<usize>>();
+
+        let topk_partitioned: Vec<_> = user_range .par_chunks(num_cores).map(|range| {
+            let mut topk_per_user: Vec<TopK> = Vec::with_capacity(range.len());
+            let mut accumulator = RowAccumulator::new(num_items.clone());
+            for user in range {
+                for item_index in indptr.outer_inds_sz(*user) {
+                    let value = data[item_index];
+                    for user_index in indptr_t.outer_inds_sz(indices[item_index]) {
+                        accumulator.add_to(indices_t[user_index], data_t[user_index] * value.clone());
+                    }
+                }
+
+                let topk = accumulator.topk_and_clear(*user, k, &l2norms);
+                topk_per_user.push(topk);
+            }
+            (range, topk_per_user)
+        }).collect();
+
+        // TODO Sort the ranges and concat the vecs?
+        //let mut topk_per_user: Vec<TopK> = Vec::with_capacity(num_users);
+        let mut topk_per_user: Vec<TopK> = vec![TopK::new(BinaryHeap::new()); num_users];
+        for (range, topk_partition) in topk_partitioned.into_iter() {
+            for (index, topk) in range.into_iter().zip(topk_partition.into_iter()) {
+                topk_per_user[*index] = topk;
+            }
+        }
+
+        /*println!("--Starting topk computation...");
         let mut accumulator = RowAccumulator::new(num_items.clone());
 
         let mut topk_per_user: Vec<TopK> = Vec::with_capacity(num_users);
@@ -69,7 +103,7 @@ impl UserSimilarityIndex {
             let topk = accumulator.topk_and_clear(user, k, &l2norms);
 
             topk_per_user.push(topk);
-        }
+        }*/
 
         Self {
             user_representations,
@@ -175,7 +209,7 @@ impl UserSimilarityIndex {
         let topk = accumulator.topk_and_clear(user, self.k, &self.l2norms);
         self.topk_per_user[user] = topk;
 
-
+        // TODO is it worth to parallelize this?
         for user_to_recompute in users_to_fully_recompute {
             for item_index in indptr.outer_inds_sz(user_to_recompute) {
                 let value = data[item_index];
