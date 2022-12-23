@@ -156,21 +156,22 @@ impl UserSimilarityIndex {
                 }
             } else {
                 if other_topk.len() < self.k {
-                    return if similar_user_to_update.similarity == 0.0 {
-                        (other_user, other_topk.remove_existing_entry(
-                            similar_user_to_update.user, self.k))
+
+                    if similar_user_to_update.similarity == 0.0 {
+                        return (other_user, other_topk.remove_existing_entry(
+                            similar_user_to_update.user, self.k));
                     } else {
-                        (other_user,
-                         other_topk.update_existing_entry(similar_user_to_update, self.k))
+                        return (other_user,
+                                other_topk.update_existing_entry(similar_user_to_update, self.k));
                     }
 
                 } else {
 
-                    return if similar_user_to_update.similarity == 0.0 {
-                        (other_user, NeedsFullRecomputation)
+                    if similar_user_to_update.similarity == 0.0 {
+                        return (other_user, NeedsFullRecomputation);
                     } else {
-                        (other_user, other_topk.update_existing_entry(
-                            similar_user_to_update, self.k))
+                        return (other_user, other_topk.update_existing_entry(
+                            similar_user_to_update, self.k));
                     };
                 }
             }

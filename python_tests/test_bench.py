@@ -22,7 +22,7 @@ def max_n(row_data, row_indices, n):
     top_indices = row_indices[i]
     return top_values, top_indices, i
 
-for sizes in [(50000, 10000)]: #[(1000,1000), (1000,10000), (10000, 10000), (10000, 50000)]:
+for sizes in [(1000,1000), (1000,10000), (10000, 10000), (10000, 50000)]:
     print(sizes)
     for k in (10, 50, 100):
         print(" ", k)
