@@ -1,9 +1,17 @@
 use std::collections::BinaryHeap;
 use crate::similar_user::SimilarUser;
 use std::collections::binary_heap::Iter;
+use crate::topk::TopkUpdate::{NeedsFullRecomputation, NoChange, Update};
 
+#[derive(Clone)]
 pub(crate) struct TopK {
     heap: BinaryHeap<SimilarUser>,
+}
+
+pub(crate) enum TopkUpdate {
+    NoChange,
+    Update(TopK),
+    NeedsFullRecomputation,
 }
 
 impl TopK {
@@ -30,45 +38,63 @@ impl TopK {
         false
     }
 
-    pub(crate) fn offer_non_existing_entry(&mut self, offered_entry: SimilarUser) -> bool {
-        let mut top = self.heap.peek_mut().unwrap();
-        if offered_entry < *top {
-            *top = offered_entry;
-            return true
+    pub(crate) fn offer_non_existing_entry(&self, offered_entry: SimilarUser) -> TopkUpdate {
+        if offered_entry < *self.heap.peek().unwrap() {
+            let mut updated_heap = self.heap.clone();
+            {
+                let mut top = updated_heap.peek_mut().unwrap();
+                *top = offered_entry;
+            }
+            Update(TopK::new(updated_heap))
+        } else {
+            NoChange
         }
-        false
     }
 
-
-    pub(crate) fn update_existing_entry(
-        &mut self,
-        update: SimilarUser,
+    pub(crate) fn remove_existing_entry(
+        &self,
+        user: usize,
         k: usize
-    ) -> bool {
+    ) -> TopkUpdate {
+        let mut new_heap = BinaryHeap::with_capacity(k);
 
-        if self.heap.len() == k {
-            let old_top = self.heap.peek().unwrap();
-
-            if old_top.user == update.user && old_top.similarity > update.similarity {
-                return true
+        for existing_entry in self.heap.iter() {
+            if existing_entry.user != user {
+                new_heap.push(existing_entry.clone());
             }
         }
 
-        let mut new_topk = BinaryHeap::with_capacity(k);
+        Update(TopK::new(new_heap))
+    }
+
+    pub(crate) fn update_existing_entry(
+        &self,
+        update: SimilarUser,
+        k: usize
+    ) -> TopkUpdate {
+
+        assert_ne!(update.similarity, 0.0);
+
+        if self.heap.len() == k {
+            let old_top = self.heap.peek().unwrap();
+            if old_top.user == update.user && old_top.similarity > update.similarity {
+                return NeedsFullRecomputation
+            }
+        }
+
+        let mut new_heap = BinaryHeap::with_capacity(k);
 
         for existing_entry in self.heap.iter() {
             if existing_entry.user != update.user {
-                new_topk.push(existing_entry.clone());
+                new_heap.push(existing_entry.clone());
             }
         }
 
         if update.similarity != 0.0 {
-            new_topk.push(update);
+            new_heap.push(update);
         }
 
-        self.heap = new_topk;
-
-        false
+        Update(TopK::new(new_heap))
     }
 }
 
@@ -78,7 +104,6 @@ mod tests {
 
     #[test]
     fn test_update_not_smallest() {
-
         let k = 3;
         let mut original_entries = BinaryHeap::with_capacity(k);
         original_entries.push(SimilarUser::new(1, 1.0));
@@ -87,15 +112,17 @@ mod tests {
 
         let mut topk = TopK::new(original_entries);
 
-        let recomputation_required = topk.update_existing_entry(SimilarUser::new(2, 0.7), k);
+        let update = topk.update_existing_entry(SimilarUser::new(2, 0.7), k);
 
-        assert!(!recomputation_required);
-        assert_eq!(topk.len(), 3);
+        assert!(matches!(update, Update(_)));
 
-        let n = topk.heap.into_sorted_vec();
-        check_entry(&n[0], 1, 1.0);
-        check_entry(&n[1], 2, 0.7);
-        check_entry(&n[2], 3, 0.5);
+        if let Update(new_topk) = update {
+            assert_eq!(new_topk.len(), 3);
+            let n = new_topk.heap.into_sorted_vec();
+            check_entry(&n[0], 1, 1.0);
+            check_entry(&n[1], 2, 0.7);
+            check_entry(&n[2], 3, 0.5);
+        }
     }
 
     #[test]
@@ -109,15 +136,16 @@ mod tests {
 
         let mut topk = TopK::new(original_entries);
 
-        let recomputation_required = topk.update_existing_entry(SimilarUser::new(2, 1.5), k);
+        let update = topk.update_existing_entry(SimilarUser::new(2, 1.5), k);
 
-        assert!(!recomputation_required);
-        assert_eq!(topk.len(), 3);
-
-        let n = topk.heap.into_sorted_vec();
-        check_entry(&n[0], 2, 1.5);
-        check_entry(&n[1], 1, 1.0);
-        check_entry(&n[2], 3, 0.5);
+        assert!(matches!(update, Update(_)));
+        if let Update(new_topk) = update {
+            assert_eq!(new_topk.len(), 3);
+            let n = new_topk.heap.into_sorted_vec();
+            check_entry(&n[0], 2, 1.5);
+            check_entry(&n[1], 1, 1.0);
+            check_entry(&n[2], 3, 0.5);
+        }
     }
 
     #[test]
@@ -131,15 +159,16 @@ mod tests {
 
         let mut topk = TopK::new(original_entries);
 
-        let recomputation_required = topk.update_existing_entry(SimilarUser::new(3, 0.6), k);
+        let update = topk.update_existing_entry(SimilarUser::new(3, 0.6), k);
 
-        assert!(!recomputation_required);
-        assert_eq!(topk.len(), 3);
-
-        let n = topk.heap.into_sorted_vec();
-        check_entry(&n[0], 1, 1.0);
-        check_entry(&n[1], 2, 0.8);
-        check_entry(&n[2], 3, 0.6);
+        assert!(matches!(update, Update(_)));
+        if let Update(new_topk) = update {
+            assert_eq!(new_topk.len(), 3);
+            let n = new_topk.heap.into_sorted_vec();
+            check_entry(&n[0], 1, 1.0);
+            check_entry(&n[1], 2, 0.8);
+            check_entry(&n[2], 3, 0.6);
+        }
     }
 
     #[test]
@@ -153,9 +182,8 @@ mod tests {
 
         let mut topk = TopK::new(original_entries);
 
-        let recomputation_required = topk.update_existing_entry(SimilarUser::new(3, 0.4), k);
-
-        assert!(recomputation_required);
+        let update = topk.update_existing_entry(SimilarUser::new(3, 0.4), k);
+        assert!(matches!(update, NeedsFullRecomputation));
     }
 
     #[test]
@@ -168,14 +196,15 @@ mod tests {
 
         let mut topk = TopK::new(original_entries);
 
-        let recomputation_required = topk.update_existing_entry(SimilarUser::new(3, 0.4), k);
+        let update = topk.update_existing_entry(SimilarUser::new(3, 0.4), k);
 
-        assert!(!recomputation_required);
-        assert_eq!(topk.len(), 2);
-
-        let n = topk.heap.into_sorted_vec();
-        check_entry(&n[0], 1, 1.0);
-        check_entry(&n[1], 3, 0.4);
+        assert!(matches!(update, Update(_)));
+        if let Update(new_topk) = update {
+            assert_eq!(new_topk.len(), 2);
+            let n = new_topk.heap.into_sorted_vec();
+            check_entry(&n[0], 1, 1.0);
+            check_entry(&n[1], 3, 0.4);
+        }
     }
 
     fn check_entry(entry: &SimilarUser, expected_user: usize, expected_similarity: f64) {

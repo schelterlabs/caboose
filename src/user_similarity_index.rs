@@ -1,10 +1,15 @@
 use crate::similar_user::SimilarUser;
 use crate::row_accumulator::RowAccumulator;
-use crate::topk::TopK;
+use crate::topk::{TopK, TopkUpdate};
 
 use std::clone::Clone;
 use std::collections::binary_heap::Iter;
+use std::collections::BinaryHeap;
 use sprs::CsMat;
+
+use num_cpus::get_physical;
+use rayon::prelude::*;
+use crate::topk::TopkUpdate::{NeedsFullRecomputation, NoChange, Update};
 
 use crate::utils::zero_out_entry;
 
@@ -23,9 +28,9 @@ impl UserSimilarityIndex {
     }
 
     pub fn new(user_representations: CsMat<f64>, k: usize) -> Self {
-        let (num_users, num_items) = user_representations.shape();
+        let (num_users, _) = user_representations.shape();
 
-        println!("--Creating transposed copy...");
+        //println!("--Creating transposed copy...");
         let mut user_representations_transposed: CsMat<f64> = user_representations.to_owned();
         user_representations_transposed.transpose_mut();
         user_representations_transposed = user_representations_transposed.to_csr();
@@ -37,7 +42,8 @@ impl UserSimilarityIndex {
         let indices_t = user_representations_transposed.indices();
         let indptr_t = user_representations_transposed.indptr();
 
-        println!("--Computing l2 norms...");
+        //println!("--Computing l2 norms...");
+        //TODO is it worth to parallelize this?
         let l2norms: Vec<f64> = (0..num_users)
             .map(|user| {
                 let mut sum_of_squares: f64 = 0.0;
@@ -49,26 +55,35 @@ impl UserSimilarityIndex {
             })
             .collect();
 
-        println!("--Starting topk computation...");
-        let mut accumulator = RowAccumulator::new(num_items.clone());
+        let num_cores = get_physical();
+        let user_range = (0..num_users).collect::<Vec<usize>>();
 
-        let mut topk_per_user: Vec<TopK> = Vec::with_capacity(num_users);
-        for user in 0..num_users {
-
-            if user % 1000 == 0 {
-                println!("--{}/{} done", user, num_users);
-            }
-
-            for item_index in indptr.outer_inds_sz(user) {
-                let value = data[item_index];
-                for user_index in indptr_t.outer_inds_sz(indices[item_index]) {
-                    accumulator.add_to(indices_t[user_index], data_t[user_index] * value.clone());
+        let topk_partitioned: Vec<_> = user_range.par_chunks(num_cores).map(|range| {
+            let mut topk_per_user: Vec<TopK> = Vec::with_capacity(range.len());
+            let mut accumulator = RowAccumulator::new(num_users.clone());
+            for user in range {
+                for item_index in indptr.outer_inds_sz(*user) {
+                    let value = data[item_index];
+                    for user_index in indptr_t.outer_inds_sz(indices[item_index]) {
+                        accumulator.add_to(
+                            indices_t[user_index],
+                            data_t[user_index] * value.clone()
+                        );
+                    }
                 }
+
+                let topk = accumulator.topk_and_clear(*user, k, &l2norms);
+                topk_per_user.push(topk);
             }
+            (range, topk_per_user)
+        }).collect();
 
-            let topk = accumulator.topk_and_clear(user, k, &l2norms);
-
-            topk_per_user.push(topk);
+        // TODO Sort the ranges, reserve on first and append the remaining vecs
+        let mut topk_per_user: Vec<TopK> = vec![TopK::new(BinaryHeap::new()); num_users];
+        for (range, topk_partition) in topk_partitioned.into_iter() {
+            for (index, topk) in range.into_iter().zip(topk_partition.into_iter()) {
+                topk_per_user[*index] = topk;
+            }
         }
 
         Self {
@@ -81,10 +96,9 @@ impl UserSimilarityIndex {
     }
 
 
-
     pub fn forget(&mut self, user: usize, item: usize) {
 
-        let (_, num_items) = self.user_representations.shape();
+        let (num_users, _) = self.user_representations.shape();
 
         let old_value = self.user_representations.get(user, item).unwrap().clone();
 
@@ -107,7 +121,7 @@ impl UserSimilarityIndex {
         let indices_t = self.user_representations_transposed.indices();
         let indptr_t = self.user_representations_transposed.indptr();
 
-        let mut accumulator = RowAccumulator::new(num_items.clone());
+        let mut accumulator = RowAccumulator::new(num_users.clone());
 
         for item_index in indptr.outer_inds_sz(user) {
             let value = data[item_index];
@@ -121,62 +135,68 @@ impl UserSimilarityIndex {
 
         let mut users_to_fully_recompute = Vec::new();
 
-        for similar_user in updated_similarities {
+        let changes: Vec<(usize, TopkUpdate)> = updated_similarities.par_iter().map(|similar_user| {
 
             assert_ne!(similar_user.user, user);
 
             let other_user = similar_user.user;
             let similarity = similar_user.similarity;
 
-            //println!("Updating topk of user {:?}", other_user);
-
-            let other_topk = &mut self.topk_per_user[other_user];
-
-
+            let other_topk = &self.topk_per_user[other_user];
             let already_in_topk = other_topk.contains(user);
-
 
             let similar_user_to_update = SimilarUser::new(user, similarity);
 
             if !already_in_topk {
-
-                if similarity != 0.0 {
-                    assert!(other_topk.len() >= self.k);
-
-                    let updated = other_topk.offer_non_existing_entry(similar_user_to_update);
-                    if updated {
-                        //println!("--C1a: Not in topk, in topk after offer");
-                    } else {
-                        //println!("--C1b: Not in topk, not in topk after offer");
-                    }
+                return if similarity != 0.0 {
+                    assert_eq!(other_topk.len(), self.k);
+                    (other_user, other_topk.offer_non_existing_entry(similar_user_to_update))
+                } else {
+                    (other_user, NoChange)
                 }
-
             } else {
                 if other_topk.len() < self.k {
-                    let full_recompute_required =
-                        other_topk.update_existing_entry(similar_user_to_update, self.k);
 
-                    assert!(!full_recompute_required);
-                    //println!("--C2: In topk, updated, not full -> no recomp");
-                } else {
-                    let full_recompute_required =
-                        other_topk.update_existing_entry(similar_user_to_update, self.k);
-
-                    if full_recompute_required {
-                        users_to_fully_recompute.push(other_user);
-                        //println!("--C3b: In topk, recomputation required");
+                    if similar_user_to_update.similarity == 0.0 {
+                        return (other_user, other_topk.remove_existing_entry(
+                            similar_user_to_update.user, self.k));
                     } else {
-                        //println!("--C3a: In topk, updated, no recomp");
+                        return (other_user,
+                                other_topk.update_existing_entry(similar_user_to_update, self.k));
                     }
+
+                } else {
+
+                    if similar_user_to_update.similarity == 0.0 {
+                        return (other_user, NeedsFullRecomputation);
+                    } else {
+                        return (other_user, other_topk.update_existing_entry(
+                            similar_user_to_update, self.k));
+                    };
                 }
+            }
+        }).collect();
+
+        let mut count_nochange = 0;
+        let mut count_update = 0;
+        for (other_user, change) in changes {
+            match change {
+                NeedsFullRecomputation => users_to_fully_recompute.push(other_user),
+                Update(new_topk) => {
+                    count_update += 1;
+                    self.topk_per_user[other_user] = new_topk;
+                },
+                NoChange => count_nochange += 1,
             }
         }
 
         let topk = accumulator.topk_and_clear(user, self.k, &self.l2norms);
         self.topk_per_user[user] = topk;
 
-
+        // TODO is it worth to parallelize this?
+        let count_recompute = users_to_fully_recompute.len();
         for user_to_recompute in users_to_fully_recompute {
+
             for item_index in indptr.outer_inds_sz(user_to_recompute) {
                 let value = data[item_index];
                 for user_index in indptr_t.outer_inds_sz(indices[item_index]) {
@@ -188,6 +208,7 @@ impl UserSimilarityIndex {
 
             self.topk_per_user[user_to_recompute] = topk;
         }
+        println!("NoChange={}/Update={}/Recompute={}", count_nochange, count_update, count_recompute);
     }
 }
 
