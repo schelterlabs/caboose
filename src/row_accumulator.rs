@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use crate::topk::TopK;
 
@@ -6,7 +7,8 @@ use crate::similar_user::SimilarUser;
 pub(crate) struct RowAccumulator {
     sums: Vec<f64>,
     non_zeros: Vec<isize>,
-    head: isize
+    head: isize,
+    similarity_threshold: Option<f64>,
 }
 
 const NONE: f64 = 0.0;
@@ -15,11 +17,12 @@ const NO_HEAD: isize = -2;
 
 impl RowAccumulator {
 
-    pub(crate) fn new(num_items: usize) -> Self {
+    pub(crate) fn new(num_items: usize, similarity_threshold: Option<f64>) -> Self {
         RowAccumulator {
             sums: vec![NONE; num_items],
             non_zeros: vec![NOT_OCCUPIED; num_items],
             head: NO_HEAD,
+            similarity_threshold,
         }
     }
 
@@ -48,8 +51,21 @@ impl RowAccumulator {
 
             if other_user != user {
                 let similarity = self.sums[other_user] / (l2norms[user] * l2norms[other_user]);
-                let scored_user = SimilarUser::new(other_user, similarity);
-                similar_users.push(scored_user);
+
+                match self.similarity_threshold {
+                    Some(threshold) => {
+                        if let Some(order) = similarity.partial_cmp(&threshold) {
+                            if order != Ordering::Less {
+                                let scored_user = SimilarUser::new(other_user, similarity);
+                                similar_users.push(scored_user);
+                            }
+                        }
+                    }
+                    None => {
+                        let scored_user = SimilarUser::new(other_user, similarity);
+                        similar_users.push(scored_user);
+                    },
+                }
             }
 
             intermediate_head = self.non_zeros[other_user];
@@ -72,17 +88,41 @@ impl RowAccumulator {
 
             // We can have zero dot products after deletions
             if other_user != user && self.sums[other_user] != NONE {
-                let similarity = self.sums[other_user] / (l2norms[user] * l2norms[other_user]);
-                let scored_user = SimilarUser::new(other_user, similarity);
 
-                if topk_similar_users.len() < k {
-                    topk_similar_users.push(scored_user);
-                } else {
-                    let mut top = topk_similar_users.peek_mut().unwrap();
-                    if scored_user < *top {
-                        *top = scored_user;
+                let similarity = self.sums[other_user] / (l2norms[user] * l2norms[other_user]);
+
+                match self.similarity_threshold {
+                    Some(threshold) => {
+                        if let Some(order) = similarity.partial_cmp(&threshold) {
+                            if order != Ordering::Less {
+                                let scored_user = SimilarUser::new(other_user, similarity);
+
+                                if topk_similar_users.len() < k {
+                                    topk_similar_users.push(scored_user);
+                                } else {
+                                    let mut top = topk_similar_users.peek_mut().unwrap();
+                                    if scored_user < *top {
+                                        *top = scored_user;
+                                    }
+                                }
+                            }
+                        }
                     }
+                    None => {
+                        let scored_user = SimilarUser::new(other_user, similarity);
+
+                        if topk_similar_users.len() < k {
+                            topk_similar_users.push(scored_user);
+                        } else {
+                            let mut top = topk_similar_users.peek_mut().unwrap();
+                            if scored_user < *top {
+                                *top = scored_user;
+                            }
+                        }
+                    },
                 }
+
+
             }
 
             self.head = self.non_zeros[other_user];

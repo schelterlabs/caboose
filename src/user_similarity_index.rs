@@ -5,6 +5,7 @@ use crate::topk::{TopK, TopkUpdate};
 use std::clone::Clone;
 use std::collections::binary_heap::Iter;
 use std::collections::BinaryHeap;
+use std::time::Instant;
 use sprs::CsMat;
 
 use num_cpus::get_physical;
@@ -18,6 +19,7 @@ pub struct UserSimilarityIndex {
     user_representations_transposed: CsMat<f64>,
     topk_per_user: Vec<TopK>,
     k: usize,
+    similarity_threshold: Option<f64>,
     l2norms: Vec<f64>,
 }
 
@@ -27,7 +29,7 @@ impl UserSimilarityIndex {
         self.topk_per_user[user].iter()
     }
 
-    pub fn new(user_representations: CsMat<f64>, k: usize) -> Self {
+    pub fn new(user_representations: CsMat<f64>, k: usize, similarity_threshold: Option<f64>) -> Self {
         let (num_users, _) = user_representations.shape();
 
         //println!("--Creating transposed copy...");
@@ -60,7 +62,7 @@ impl UserSimilarityIndex {
 
         let topk_partitioned: Vec<_> = user_range.par_chunks(num_cores).map(|range| {
             let mut topk_per_user: Vec<TopK> = Vec::with_capacity(range.len());
-            let mut accumulator = RowAccumulator::new(num_users.clone());
+            let mut accumulator = RowAccumulator::new(num_users.clone(), similarity_threshold.clone());
             for user in range {
                 for item_index in indptr.outer_inds_sz(*user) {
                     let value = data[item_index];
@@ -91,6 +93,7 @@ impl UserSimilarityIndex {
             user_representations_transposed,
             topk_per_user,
             k,
+            similarity_threshold,
             l2norms,
         }
     }
@@ -103,16 +106,21 @@ impl UserSimilarityIndex {
         let old_value = self.user_representations.get(user, item).unwrap().clone();
 
         //println!("-Updating user representations");
+        let start_time = Instant::now();
         zero_out_entry(&mut self.user_representations, user, item);
         assert_eq!(*self.user_representations.get(user, item).unwrap(), 0.0_f64);
 
         zero_out_entry(&mut self.user_representations_transposed, item, user);
         assert_eq!(*self.user_representations_transposed.get(item, user).unwrap(), 0.0_f64);
+        let _representation_update_time = (Instant::now() - start_time).as_micros();
 
         //println!("-Updating norms");
+        let start_time = Instant::now();
         let old_l2norm = self.l2norms[user];
         self.l2norms[user] = ((old_l2norm * old_l2norm) - (old_value * old_value)).sqrt();
+        let _norm_update_time = (Instant::now() - start_time).as_micros();
 
+        let start_time = Instant::now();
         //println!("-Computing new similarities for user {}", user);
         let data = self.user_representations.data();
         let indices = self.user_representations.indices();
@@ -121,7 +129,7 @@ impl UserSimilarityIndex {
         let indices_t = self.user_representations_transposed.indices();
         let indptr_t = self.user_representations_transposed.indptr();
 
-        let mut accumulator = RowAccumulator::new(num_users.clone());
+        let mut accumulator = RowAccumulator::new(num_users.clone(), self.similarity_threshold.clone());
 
         for item_index in indptr.outer_inds_sz(user) {
             let value = data[item_index];
@@ -130,11 +138,12 @@ impl UserSimilarityIndex {
             }
         }
 
-
         let updated_similarities = accumulator.collect_all(user, &self.l2norms);
+        let similarity_update_time = (Instant::now() - start_time).as_micros();
 
         let mut users_to_fully_recompute = Vec::new();
 
+        let start_time = Instant::now();
         let changes: Vec<(usize, TopkUpdate)> = updated_similarities.par_iter().map(|similar_user| {
 
             assert_ne!(similar_user.user, user);
@@ -147,7 +156,9 @@ impl UserSimilarityIndex {
 
             let similar_user_to_update = SimilarUser::new(user, similarity);
 
+
             if !already_in_topk {
+                // TODO threshold
                 return if similarity != 0.0 {
                     assert_eq!(other_topk.len(), self.k);
                     (other_user, other_topk.offer_non_existing_entry(similar_user_to_update))
@@ -156,7 +167,7 @@ impl UserSimilarityIndex {
                 }
             } else {
                 if other_topk.len() < self.k {
-
+                    // TODO threshold
                     if similar_user_to_update.similarity == 0.0 {
                         return (other_user, other_topk.remove_existing_entry(
                             similar_user_to_update.user, self.k));
@@ -166,7 +177,7 @@ impl UserSimilarityIndex {
                     }
 
                 } else {
-
+                    // TODO threshold
                     if similar_user_to_update.similarity == 0.0 {
                         return (other_user, NeedsFullRecomputation);
                     } else {
@@ -176,7 +187,9 @@ impl UserSimilarityIndex {
                 }
             }
         }).collect();
+        let change_compute_time = (Instant::now() - start_time).as_micros();
 
+        let start_time = Instant::now();
         let mut count_nochange = 0;
         let mut count_update = 0;
         for (other_user, change) in changes {
@@ -192,7 +205,9 @@ impl UserSimilarityIndex {
 
         let topk = accumulator.topk_and_clear(user, self.k, &self.l2norms);
         self.topk_per_user[user] = topk;
+        let change_apply_time = (Instant::now() - start_time).as_micros();
 
+        let start_time = Instant::now();
         // TODO is it worth to parallelize this?
         let count_recompute = users_to_fully_recompute.len();
         for user_to_recompute in users_to_fully_recompute {
@@ -208,7 +223,13 @@ impl UserSimilarityIndex {
 
             self.topk_per_user[user_to_recompute] = topk;
         }
-        println!("NoChange={}/Update={}/Recompute={}", count_nochange, count_update, count_recompute);
+        let full_recomputation_time = (Instant::now() - start_time).as_micros();
+
+        let total = count_nochange + count_update + count_recompute;
+        println!("Total={} with (NoChange={}/Update={}/Recompute={})\n\
+            similarity_update={},change_compute={},change_apply={},full_recomputation={}",
+            total, count_nochange, count_update, count_recompute, similarity_update_time,
+            change_compute_time, change_apply_time, full_recomputation_time);
     }
 }
 

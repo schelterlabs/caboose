@@ -8,7 +8,7 @@ import numpy as np
 representations = load_npz('tifu-instacart.npz')
 print(representations.shape, representations.nnz)
 
-k=300
+k=900
 num_rows, num_cols = representations.shape
 
 start_time = datetime.now()

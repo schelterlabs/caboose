@@ -36,7 +36,8 @@ impl Index {
         indptr: &PyArrayDyn<i32>,
         indices: &PyArrayDyn<i32>,
         data: &PyArrayDyn<f64>,
-        k: usize
+        k: usize,
+        similarity_threshold: f64,
     ) -> Self {
 
         // TODO this horribly inefficient for now...
@@ -49,8 +50,14 @@ impl Index {
         let representations =
             CsMat::new((num_rows, num_cols), indptr_copy, indices_copy, data_copy);
 
+        let threshold = if similarity_threshold == 0.0 {
+            None
+        } else {
+            Some(similarity_threshold)
+        };
+
         Self {
-            similarity_index: UserSimilarityIndex::new(representations, k),
+            similarity_index: UserSimilarityIndex::new(representations, k, threshold),
         }
     }
 }
