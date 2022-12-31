@@ -1,6 +1,7 @@
-import caboose
+import caboose_nbr
 import numpy as np
 from scipy.sparse import csr_matrix
+
 
 def dense_cosine(A):
     similarity = np.dot(A, A.T)
@@ -13,11 +14,13 @@ def dense_cosine(A):
     np.fill_diagonal(cosine, 0)
     return cosine
 
+
 def caboose_index(representations, k):
     num_rows, num_cols = representations.shape
-    return caboose.Index(num_rows, num_cols, representations.indptr,
-                         representations.indices, representations.data,
-                         k)
+    return caboose_nbr.Index(num_rows, num_cols, representations.indptr,
+                             representations.indices, representations.data,
+                             k)
+
 
 def compare(row, cosine, index, k):
     max_indices = cosine[row,:].argsort()[-k:][::-1]
@@ -25,12 +28,12 @@ def compare(row, cosine, index, k):
     from_numpy = dict(zip(max_indices, max_values))
     from_numpy = {index:value for index,value in from_numpy.items() if value != 0}
     from_caboose = dict((index, value) for index, value in index.topk(row))
-    #print(from_numpy)
-    #print(from_caboose)
+
     assert len(from_numpy) == len(from_caboose)
     for index, value in from_caboose.items():
         assert index in from_numpy
         assert abs(value - from_numpy[index]) < 0.0001
+
 
 def run_comparison(A, k):
     A_sparse = csr_matrix(A)
@@ -39,6 +42,7 @@ def run_comparison(A, k):
 
     for row in range(0, A.shape[0]):
         compare(row, cosine, index, k)
+
 
 def test_mini_example():
     A = np.array(
@@ -51,6 +55,7 @@ def test_mini_example():
     run_comparison(A, 1)
     run_comparison(A, 2)
     run_comparison(A, 3)
+
 
 def test_random_matrices():
     from scipy.sparse import random
@@ -66,6 +71,7 @@ def test_random_matrices():
         run_comparison(S.A, 2)
         run_comparison(S.A, 5)
 
+
 def test_mini_example_with_forgetting():
     A = np.array(
         [[1, 1, 1, 0, 1],
@@ -78,15 +84,14 @@ def test_mini_example_with_forgetting():
     A_sparse = csr_matrix(A)
     index = caboose_index(A_sparse, k)
 
-    A[0,1] = 0.0
+    A[0, 1] = 0.0
     cosine = dense_cosine(A)
     index.forget(0, 1)
 
     for row in range(0, A.shape[0]):
         compare(row, cosine, index, k)
 
-
-    A[1,3] = 0.0
+    A[1, 3] = 0.0
     cosine = dense_cosine(A)
     index.forget(1, 3)
 

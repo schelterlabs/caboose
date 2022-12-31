@@ -1,17 +1,12 @@
 use pyo3::prelude::*;
 use numpy::PyArrayDyn;
 use sprs::CsMat;
-use crate::user_similarity_index::UserSimilarityIndex;
-
-mod user_similarity_index;
-mod similar_user;
-mod row_accumulator;
-mod topk;
-mod utils;
+use caboose_index::sparse_topk_index::SparseTopKIndex;
+use caboose_index::similarity::{Cosine, COSINE};
 
 #[pyclass]
 struct Index {
-    similarity_index: UserSimilarityIndex,
+    similarity_index: SparseTopKIndex<Cosine>,
 }
 
 #[pymethods]
@@ -19,7 +14,7 @@ impl Index {
 
     fn topk(&self, row: usize) -> PyResult<Vec<(usize,f64)>> {
         let topk: Vec<(usize,f64)> = self.similarity_index.neighbors(row)
-            .map(|similar_user| (similar_user.user, similar_user.similarity))
+            .map(|similar_user| (similar_user.row, similar_user.similarity))
             .collect();
         Ok(topk)
     }
@@ -49,9 +44,10 @@ impl Index {
         let representations =
             CsMat::new((num_rows, num_cols), indptr_copy, indices_copy, data_copy);
 
-        Self {
-            similarity_index: UserSimilarityIndex::new(representations, k),
-        }
+        let similarity_index: SparseTopKIndex<Cosine> =
+            SparseTopKIndex::new(representations, k, COSINE);
+
+        Self { similarity_index }
     }
 }
 

@@ -3,16 +3,12 @@ name = "caboose"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
 name = "caboose"
 crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.17.3", features = ["extension-module"] }
+caboose_index = { path = "../caboose_index" }
 numpy = "0.17.2"
 sprs = "0.11"
-num_cpus = "1.15.0"
-rayon = "1.6.1"
-
-
