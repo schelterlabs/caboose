@@ -1,4 +1,4 @@
-import caboose_nbr
+import caboose
 import numpy as np
 from scipy.sparse import csr_matrix
 
@@ -17,9 +17,9 @@ def dense_cosine(A):
 
 def caboose_index(representations, k):
     num_rows, num_cols = representations.shape
-    return caboose_nbr.Index(num_rows, num_cols, representations.indptr,
-                             representations.indices, representations.data,
-                             k)
+    return caboose.Index(num_rows, num_cols, representations.indptr,
+                         representations.indices, representations.data,
+                         k)
 
 
 def compare(row, cosine, index, k):
