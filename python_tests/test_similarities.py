@@ -95,5 +95,11 @@ def test_mini_example_with_forgetting():
     cosine = dense_cosine(A)
     index.forget(1, 3)
 
+    print("\n")
+    print(cosine)
+    print("----")
+    for row in range(0, 4):
+        print(row, '-->', index.topk(row))
+
     for row in range(0, A.shape[0]):
         compare(row, cosine, index, k)

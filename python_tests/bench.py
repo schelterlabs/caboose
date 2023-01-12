@@ -1,4 +1,4 @@
-import caboose_nbr
+import caboose
 import numpy as np
 from scipy.sparse import csr_matrix
 
@@ -11,9 +11,9 @@ from datetime import datetime
 
 def caboose_index(representations, k):
     num_rows, num_cols = representations.shape
-    return caboose_nbr.Index(num_rows, num_cols, representations.indptr,
-                             representations.indices, representations.data,
-                             k)
+    return caboose.Index(num_rows, num_cols, representations.indptr,
+                         representations.indices, representations.data,
+                         k)
 
 # https://stackoverflow.com/questions/36135927/get-top-n-items-of-every-row-in-a-scipy-sparse-matrix
 def max_n(row_data, row_indices, n):
@@ -22,8 +22,8 @@ def max_n(row_data, row_indices, n):
     top_indices = row_indices[i]
     return top_values, top_indices, i
 
-for sizes in [(1000,1000), (1000,10000), (10000, 10000), (10000, 50000)]:
-#for sizes in [(50000, 100000)]:
+#for sizes in [(1000,1000), (1000,10000), (10000, 10000), (10000, 50000)]:
+for sizes in [(50000, 100000)]:
     print(sizes)
     for k in (10, 50, 100):
         print(" ", k)

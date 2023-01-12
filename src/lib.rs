@@ -2,19 +2,19 @@ use pyo3::prelude::*;
 use numpy::PyArrayDyn;
 use sprs::CsMat;
 use caboose_index::sparse_topk_index::SparseTopKIndex;
-use caboose_index::similarity::{Cosine, COSINE};
+
 
 #[pyclass]
 struct Index {
-    similarity_index: SparseTopKIndex<Cosine>,
+    similarity_index: SparseTopKIndex,
 }
 
 #[pymethods]
 impl Index {
 
-    fn topk(&self, row: usize) -> PyResult<Vec<(usize,f64)>> {
-        let topk: Vec<(usize,f64)> = self.similarity_index.neighbors(row)
-            .map(|similar_user| (similar_user.row, similar_user.similarity))
+    fn topk(&self, row: usize) -> PyResult<Vec<(usize,f32)>> {
+        let topk: Vec<(usize,f32)> = self.similarity_index.neighbors(row)
+            .map(|similar_user| (similar_user.row as usize, similar_user.similarity))
             .collect();
         Ok(topk)
     }
@@ -44,8 +44,7 @@ impl Index {
         let representations =
             CsMat::new((num_rows, num_cols), indptr_copy, indices_copy, data_copy);
 
-        let similarity_index: SparseTopKIndex<Cosine> =
-            SparseTopKIndex::new(representations, k, COSINE);
+        let similarity_index: SparseTopKIndex = SparseTopKIndex::new(representations, k);
 
         Self { similarity_index }
     }
