@@ -2,12 +2,13 @@ import numpy as np
 from scipy.sparse import csr_matrix
 import caboose
 import math
+from sklearn.neighbors import NearestNeighbors
 
 from caboose_nbr.nbr_base import NBRBase
 
 
 class TIFUKNN(NBRBase):
-    def __init__(self, train_baskets, test_baskets, valid_baskets, basket_count_min=0, min_item_count =5 ,
+    def __init__(self, train_baskets, test_baskets, valid_baskets,mode, distance_metric = 'minkowski' ,basket_count_min=0, min_item_count =5 ,
                  k = 300, m = 7, rb = 1, rg = 0.6, alpha = 0.7):
         super().__init__(train_baskets,test_baskets,valid_baskets,basket_count_min)
         self.k = k
@@ -22,6 +23,8 @@ class TIFUKNN(NBRBase):
         self.caboose = None
         self.item_id_mapper = {}
         self.id_item_mapper = {}
+        self.mode = mode
+        self.distance_metric = distance_metric
 
     def train(self):
         print('initial data processing')
@@ -94,9 +97,14 @@ class TIFUKNN(NBRBase):
         num_rows, num_cols = representations.shape
         print(representations.shape)
         print('start of knn')
-        self.caboose = caboose.Index(num_rows, num_cols, representations.indptr,
-                                     representations.indices, representations.data,
-                                     self.k)
+        if self.mode == 'caboose':
+            self.caboose = caboose.Index(num_rows, num_cols, representations.indptr,
+                                         representations.indices, representations.data,
+                                         self.k)
+        if self.mode == 'adhoc':
+            nbrs = NearestNeighbors(n_neighbors=self.k+1, algorithm='brute',metric =self.distance_metric).fit(user_reps)
+            distances, indices = nbrs.kneighbors(user_reps)
+            self.nn_indices = indices
         print('knn finished')
 
     def predict(self):
@@ -104,13 +112,17 @@ class TIFUKNN(NBRBase):
         for i in range(len(self.user_keys)):
             user = self.user_keys[i]
             user_rep = self.user_reps[i]
-
-            #user_nns = self.nn_indices[i].tolist()[1:]
-            user_nns = self.caboose.topk(i)
-
+            
             nn_rep = np.array([0.0]* len(user_rep))
-            for neighbor, _ in user_nns:
-                nn_rep += self.user_reps[neighbor]
+            if self.mode == 'adhoc':
+                user_nns = self.nn_indices[i].tolist()[1:]
+                for neighbor in user_nns:
+                    nn_rep += self.user_reps[neighbor]
+            if self.mode == 'caboose':
+                user_nns = self.caboose.topk(i)
+                for neighbor, _ in user_nns:
+                    nn_rep += self.user_reps[neighbor]
+
             nn_rep /= len(user_nns)
 
             final_rep = (user_rep * self.alpha + (1-self.alpha) * nn_rep).tolist()
