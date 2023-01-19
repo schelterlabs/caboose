@@ -25,6 +25,7 @@ class TIFUKNN(NBRBase):
         self.id_item_mapper = {}
         self.mode = mode
         self.distance_metric = distance_metric
+        self.all_user_nns = {}
 
     def train(self):
         print('initial data processing')
@@ -101,7 +102,7 @@ class TIFUKNN(NBRBase):
             self.caboose = caboose.Index(num_rows, num_cols, representations.indptr,
                                          representations.indices, representations.data,
                                          self.k)
-        if self.mode == 'adhoc':
+        if self.mode == 'sklearn':
             nbrs = NearestNeighbors(n_neighbors=self.k+1, algorithm='brute',metric =self.distance_metric).fit(user_reps)
             distances, indices = nbrs.kneighbors(user_reps)
             self.nn_indices = indices
@@ -114,7 +115,7 @@ class TIFUKNN(NBRBase):
             user_rep = self.user_reps[i]
             
             nn_rep = np.array([0.0]* len(user_rep))
-            if self.mode == 'adhoc':
+            if self.mode == 'sklearn':
                 user_nns = self.nn_indices[i].tolist()[1:]
                 for neighbor in user_nns:
                     nn_rep += self.user_reps[neighbor]
@@ -122,7 +123,7 @@ class TIFUKNN(NBRBase):
                 user_nns = self.caboose.topk(i)
                 for neighbor, _ in user_nns:
                     nn_rep += self.user_reps[neighbor]
-
+            self.all_user_nns[user] =  user_nns
             nn_rep /= len(user_nns)
 
             final_rep = (user_rep * self.alpha + (1-self.alpha) * nn_rep).tolist()
