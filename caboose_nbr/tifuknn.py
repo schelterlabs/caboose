@@ -23,6 +23,7 @@ class TIFUKNN(NBRBase):
         self.caboose = None
         self.item_id_mapper = {}
         self.id_item_mapper = {}
+        self.user_map = {}
         self.mode = mode
         self.distance_metric = distance_metric
         self.all_user_nns = {}
@@ -93,6 +94,7 @@ class TIFUKNN(NBRBase):
 
         self.user_keys = user_keys
         self.user_reps = np.array(user_reps)
+        self.user_map = dict(zip(user_keys,range(len(user_keys))))
 
         representations = csr_matrix(self.user_reps)
         num_rows, num_cols = representations.shape
@@ -108,6 +110,20 @@ class TIFUKNN(NBRBase):
             self.nn_indices = indices
         print('knn finished')
 
+        
+    def forget_interactions(self,user_item_pairs):
+        if self.mode == 'caboose':
+            for user,item in user_item_pairs:
+                if item in self.item_id_mapper and user in self.user_map:
+                    self.user_reps[self.user_map[user]][self.item_id_mapper[item]] = 0
+                    self.caboose.forget(self.user_map[user],self.item_id_mapper[item])
+        if self.mode == 'sklearn':
+            self.train_baskets['user_item'] = self.train_baskets.apply(lambda x: [x['user_id'],x['item_id']],axis = 1)
+            self.train_baskets = self.train_baskets[~self.train_baskets['user_item'].isin(user_item_pairs)]
+            self.train_baskets.drop('user_item', axis=1, inplace=True)
+            self.train()
+            
+            
     def predict(self):
         ret_dict = {}
         for i in range(len(self.user_keys)):
