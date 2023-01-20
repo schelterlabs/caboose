@@ -52,6 +52,18 @@ class TIFUKNN(NBRBase):
         basket_items_df = self.train_baskets[['basket_id','item_id']].drop_duplicates().groupby('basket_id')['item_id'] \
             .apply(list).reset_index()
         basket_items_dict = dict(zip(basket_items_df['basket_id'],basket_items_df['item_id']))
+        print('compute basket reps')
+        basket_reps = {}
+        counter = 0
+        for basket in basket_items_dict:
+            counter+=1
+            if counter % 1000 == 0:
+                print(counter,' baskets passed')
+            rep = [0]* len(self.item_id_mapper)
+            for item in basket_items_dict[basket]:
+                if item in self.item_id_mapper:
+                    rep[self.item_id_mapper[item]] = 1
+            basket_reps[basket] = rep
 
         user_keys = []
         user_reps = []
@@ -76,13 +88,7 @@ class TIFUKNN(NBRBase):
                 group_rep = np.array([0.0]* len(self.item_id_mapper))
                 for j in range(1,len(basket_groups[i])+1):
                     basket = basket_groups[i][j-1]
-
-                    rep = [0]* len(self.item_id_mapper)
-                    for item in basket_items_dict[basket]:
-                        if item in self.item_id_mapper:
-                            rep[self.item_id_mapper[item]] = 1
-
-                    basket_rep = np.array(rep) * math.pow(self.rb, group_size-j)
+                    basket_rep = np.array(basket_reps[basket]) * math.pow(self.rb, group_size-j)
                     group_rep += basket_rep
                 group_rep /= group_size
 
