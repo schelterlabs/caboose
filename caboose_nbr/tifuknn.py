@@ -27,21 +27,24 @@ class TIFUKNN(NBRBase):
         self.mode = mode
         self.distance_metric = distance_metric
         self.all_user_nns = {}
+        print('initial data processing')
+        self.all_items = self.train_baskets[['item_id']].drop_duplicates()['item_id'].tolist()
+        self.all_users = self.train_baskets[['user_id']].drop_duplicates()['user_id'].tolist()
+        self.item_counts = self.train_baskets.groupby(['item_id']).size().to_frame(name = 'item_count').reset_index()
+        self.item_counts = self.item_counts[self.item_counts['item_count']> self.min_item_count]
+        self.item_counts_dict = dict(zip(self.item_counts['item_id'],self.item_counts['item_count']))
+        print("item count:",len(self.item_counts_dict))
+        
+        counter = 0
+        for i in range(len(self.all_items)):
+            if self.all_items[i] in self.item_counts_dict:
+                self.item_id_mapper[self.all_items[i]] = counter
+                self.id_item_mapper[counter] = self.all_items[i]
+                counter+=1
+        
 
     def train(self):
-        print('initial data processing')
-        all_items = self.train_baskets[['item_id']].drop_duplicates()['item_id'].tolist()
-        all_users = self.train_baskets[['user_id']].drop_duplicates()['user_id'].tolist()
-        item_counts = self.train_baskets.groupby(['item_id']).size().to_frame(name = 'item_count').reset_index()
-        item_counts = item_counts[item_counts['item_count']> self.min_item_count]
-        item_counts_dict = dict(zip(item_counts['item_id'],item_counts['item_count']))
-        print("item count:",len(item_counts_dict))
-        counter = 0
-        for i in range(len(all_items)):
-            if all_items[i] in item_counts_dict:
-                self.item_id_mapper[all_items[i]] = counter
-                self.id_item_mapper[counter] = all_items[i]
-                counter+=1
+
 
         #sorted_baskets = self.train_baskets.sort_values(['user_id','date'])
         sorted_baskets = self.train_baskets.sort_values(['user_id','order_number'])
@@ -57,7 +60,7 @@ class TIFUKNN(NBRBase):
         counter = 0
         for basket in basket_items_dict:
             counter+=1
-            if counter % 1000 == 0:
+            if counter % 10000 == 0:
                 print(counter,' baskets passed')
             rep = [0]* len(self.item_id_mapper)
             for item in basket_items_dict[basket]:
@@ -67,9 +70,9 @@ class TIFUKNN(NBRBase):
 
         user_keys = []
         user_reps = []
-        print('compute user reps',len(all_users))
+        print('compute user reps',len(self.all_users))
         counter = 0
-        for user in all_users:
+        for user in self.all_users:
             counter+=1
             if counter % 1000 == 0:
                 print(counter,' users passed')
