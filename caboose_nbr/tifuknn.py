@@ -62,7 +62,7 @@ class TIFUKNN(NBRBase):
             counter+=1
             if counter % 10000 == 0:
                 print(counter,' baskets passed')
-            rep = [0]* len(self.item_id_mapper)
+            rep = np.zeros(len(self.item_id_mapper))#[0]* len(self.item_id_mapper)
             for item in basket_items_dict[basket]:
                 if item in self.item_id_mapper:
                     rep[self.item_id_mapper[item]] = 1
@@ -76,7 +76,7 @@ class TIFUKNN(NBRBase):
             counter+=1
             if counter % 1000 == 0:
                 print(counter,' users passed')
-            rep = np.array([0.0]* len(self.item_id_mapper))
+            rep = np.zeros(len(self.item_id_mapper))#np.array([0.0]* len(self.item_id_mapper))
 
             baskets = user_baskets_dict[user]
             group_size = math.ceil(len(baskets)/self.m)
@@ -89,7 +89,7 @@ class TIFUKNN(NBRBase):
 
             for i in range(self.m):
                 group_rep = np.array([0.0]* len(self.item_id_mapper))
-                for j in range(1,len(basket_groups[i])+1):
+                for j in range(1, len(basket_groups[i])+1):
                     basket = basket_groups[i][j-1]
                     basket_rep = np.array(basket_reps[basket]) * math.pow(self.rb, group_size-j)
                     group_rep += basket_rep
@@ -106,6 +106,9 @@ class TIFUKNN(NBRBase):
         self.user_map = dict(zip(user_keys,range(len(user_keys))))
 
         representations = csr_matrix(self.user_reps)
+        import scipy
+        scipy.sparse.save_npz('tifu-instacart.npz', representations)
+
         num_rows, num_cols = representations.shape
         print(representations.shape)
         print('start of knn')
@@ -132,10 +135,36 @@ class TIFUKNN(NBRBase):
             self.train_baskets.drop('user_item', axis=1, inplace=True)
             self.train()
             
-            
+    def predict_for_user(self, user_key, how_many):
+        i = self.user_keys.index(user_key)
+        user = self.user_keys[i]
+        user_rep = self.user_reps[i]
+
+        nn_rep = np.zeros(len(user_rep))
+        if self.mode == 'sklearn':
+            user_nns = self.nn_indices[i].tolist()[1:]
+            for neighbor in user_nns:
+                nn_rep += self.user_reps[neighbor]
+        if self.mode == 'caboose':
+            user_nns = self.caboose.topk(i)
+            for neighbor, _ in user_nns:
+                nn_rep += self.user_reps[neighbor]
+        self.all_user_nns[user] =  user_nns
+        nn_rep /= len(user_nns)
+
+        final_rep = (user_rep * self.alpha + (1-self.alpha) * nn_rep).tolist()
+        final_rep_sorted = sorted(range(len(final_rep)), key=lambda k: final_rep[k], reverse=True)
+
+        top_items = []
+        for item_index in final_rep_sorted[:how_many]:
+            top_items.append(self.id_item_mapper[item_index])
+
+        return top_items
+
     def predict(self):
         ret_dict = {}
         for i in range(len(self.user_keys)):
+            #TODO refactor to call predict_for_user
             user = self.user_keys[i]
             user_rep = self.user_reps[i]
             
