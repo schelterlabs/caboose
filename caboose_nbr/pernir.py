@@ -1,9 +1,12 @@
 from scipy.sparse import coo_matrix, csr_matrix
 import caboose
 import pandas as pd
+import similaripy 
+from scipy.sparse.linalg import norm
+import numpy as np
 
 class Pernir:
-    def __init__(self,train_baskets,test_samples,user_index= 0):
+    def __init__(self,train_baskets,test_samples,mode = 'similaripy',user_index= 0):
         self.train_baskets = train_baskets
         self.test_samples = test_samples
         self.basket_items_dict = {}
@@ -12,6 +15,7 @@ class Pernir:
         self.user_neighbors = {}
         self.user_index = user_index
         self.batch_size = 10000
+        self.mode = mode
 
     def train(self):
         baskets_df = self.train_baskets[['basket_id', 'item_id', 'add_to_cart_order']].drop_duplicates()
@@ -71,18 +75,29 @@ class Pernir:
 
         userItem_mat = coo_matrix((df.score.values, (df.uid.values, df.pid.values)), shape=(n_users, n_items))
         representations = csr_matrix(userItem_mat)
-
+        
         print('start of knn')
-        similarities = caboose.Index(n_users, n_items, representations.indptr,
-                                representations.indices, representations.data,
-                                300)
+        if self.mode == 'caboose':
+            similarities = caboose.Index(n_users, n_items, representations.indptr,
+                                    representations.indices, representations.data,
+                                    50)
+            for index, user in rev_user_dic.items():
+                self.user_neighbors[user] = []
+                for other_index, similarity in similarities.topk(index):
+                    self.user_neighbors[user].append(rev_user_dic[other_index])
+                    self.user_sim_dict[(user, rev_user_dic[other_index])] = similarity
+        elif self.mode == 'similaripy':
+            userSim = similaripy.cosine(csr_matrix(userItem_mat), k=50)
+            this_user_sim_dict = dict(userSim.todok().items()) # convert to dictionary of keys format
+            for key in this_user_sim_dict:
+                self.user_sim_dict[(rev_user_dic[key[0]],rev_user_dic[key[1]])] = np.float32(this_user_sim_dict[key])
+            for key in self.user_sim_dict:
+                if key[0] not in self.user_neighbors:
+                    self.user_neighbors[key[0]] = []
+                self.user_neighbors[key[0]].append(key[1])
         print('knn finished')
 
-        for index, user in rev_user_dic.items():
-            self.user_neighbors[user] = []
-            for other_index, similarity in similarities.topk(index):
-                self.user_neighbors[user].append(other_index)
-                self.user_sim_dict[(user, rev_user_dic[other_index])] = similarity
+
 
     def user_predictions(self,user, input_items):
         baskets = self.user_baskets_dict[user]
@@ -122,21 +137,29 @@ class Pernir:
 
         return final_item_scores
 
+
+
     def predict(self):
         test_inputs = self.test_samples['input_items'].apply(eval).tolist()
         test_users = self.test_samples['user_id'].tolist()
-
+    
         predictions = []
-        print("index:",self.user_index)
+        prediction_scores = []
+        print("num test users:",len(test_inputs))
         for i, input_items in enumerate(test_inputs):
-            if i% 1000 == 0:
-                print(i)
+            if i% 500 == 0:
+                print(i, 'samples passed')
             user = test_users[i]
             input_items = test_inputs[i]
             current_items_len = len(input_items)
+            
+            
+            #f_c = self.selection_vector(input_items, num_items).tocsc(copy=True)
+            #scores = alpha * h_s_u_opt + (1-alpha) * C_s_u_opt * f_c
 
+            
+            
             personal_scores = self.user_predictions(user,input_items)
-
             neighbor_scores = {}
             for neighbor in self.user_neighbors[user]:
                 if neighbor == user:
@@ -168,9 +191,9 @@ class Pernir:
                 final_item_scores[item] += beta2 * (float(agg_neighbor_scores[item])/float(len(neighbor_scores)))#/norm_term[item])
 
             sorted_item_scores = sorted(final_item_scores.items(),key= lambda x:x[1], reverse=True)
-            predicted_items = [x[0] for x in sorted_item_scores[:1000]]
+            predicted_items = [x[0] for x in sorted_item_scores[:50]]
+            predicted_items_scores = [x[1] for x in sorted_item_scores[:50]]
+            
             predictions.append(predicted_items)
-        return predictions
-
-
-
+            prediction_scores.append(predicted_items_scores)
+        return predictions,prediction_scores
