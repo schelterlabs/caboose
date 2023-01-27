@@ -1,10 +1,14 @@
+import sys
 import numpy as np
 from scipy.sparse import csr_matrix
 import caboose
 import math
 from sklearn.neighbors import NearestNeighbors
-
 from caboose_nbr.nbr_base import NBRBase
+
+
+def eprint(*args, **kwargs):
+    print(*args, file=sys.stderr, **kwargs)
 
 
 class TIFUKNN(NBRBase):
@@ -27,42 +31,40 @@ class TIFUKNN(NBRBase):
         self.mode = mode
         self.distance_metric = distance_metric
         self.all_user_nns = {}
-        print('initial data processing')
+        eprint('initial data processing')
         self.all_items = self.train_baskets[['item_id']].drop_duplicates()['item_id'].tolist()
         self.all_users = self.train_baskets[['user_id']].drop_duplicates()['user_id'].tolist()
-        self.item_counts = self.train_baskets.groupby(['item_id']).size().to_frame(name = 'item_count').reset_index()
-        self.item_counts = self.item_counts[self.item_counts['item_count']> self.min_item_count]
-        self.item_counts_dict = dict(zip(self.item_counts['item_id'],self.item_counts['item_count']))
-        print("item count:",len(self.item_counts_dict))
+        self.item_counts = self.train_baskets.groupby(['item_id']).size().to_frame(name='item_count').reset_index()
+        self.item_counts = self.item_counts[self.item_counts['item_count'] > self.min_item_count]
+        self.item_counts_dict = dict(zip(self.item_counts['item_id'], self.item_counts['item_count']))
+        eprint("item count:", len(self.item_counts_dict))
         
         counter = 0
         for i in range(len(self.all_items)):
             if self.all_items[i] in self.item_counts_dict:
                 self.item_id_mapper[self.all_items[i]] = counter
                 self.id_item_mapper[counter] = self.all_items[i]
-                counter+=1
+                counter += 1
         
 
     def train(self):
-
-
         #sorted_baskets = self.train_baskets.sort_values(['user_id','date'])
-        sorted_baskets = self.train_baskets.sort_values(['user_id','order_number'])
+        sorted_baskets = self.train_baskets.sort_values(['user_id', 'order_number'])
         sorted_baskets = sorted_baskets[['user_id','basket_id']].drop_duplicates()
         user_baskets_df = sorted_baskets.groupby('user_id')['basket_id'].apply(list).reset_index()
-        user_baskets_dict = dict(zip(user_baskets_df['user_id'],user_baskets_df['basket_id']))
+        user_baskets_dict = dict(zip(user_baskets_df['user_id'], user_baskets_df['basket_id']))
 
-        basket_items_df = self.train_baskets[['basket_id','item_id']].drop_duplicates().groupby('basket_id')['item_id'] \
+        basket_items_df = self.train_baskets[['basket_id', 'item_id']].drop_duplicates().groupby('basket_id')['item_id'] \
             .apply(list).reset_index()
         basket_items_dict = dict(zip(basket_items_df['basket_id'],basket_items_df['item_id']))
-        print('compute basket reps')
+        eprint('compute basket reps')
         basket_reps = {}
         counter = 0
         for basket in basket_items_dict:
             counter+=1
             if counter % 10000 == 0:
-                print(counter,' baskets passed')
-            rep = np.zeros(len(self.item_id_mapper))#[0]* len(self.item_id_mapper)
+                eprint(counter, ' baskets passed')
+            rep = np.zeros(len(self.item_id_mapper))
             for item in basket_items_dict[basket]:
                 if item in self.item_id_mapper:
                     rep[self.item_id_mapper[item]] = 1
@@ -70,13 +72,13 @@ class TIFUKNN(NBRBase):
 
         user_keys = []
         user_reps = []
-        print('compute user reps',len(self.all_users))
+        eprint('compute user reps', len(self.all_users))
         counter = 0
         for user in self.all_users:
             counter+=1
             if counter % 1000 == 0:
-                print(counter,' users passed')
-            rep = np.zeros(len(self.item_id_mapper))#np.array([0.0]* len(self.item_id_mapper))
+                eprint(counter, ' users passed')
+            rep = np.zeros(len(self.item_id_mapper))
 
             baskets = user_baskets_dict[user]
             group_size = math.ceil(len(baskets)/self.m)
@@ -106,12 +108,10 @@ class TIFUKNN(NBRBase):
         self.user_map = dict(zip(user_keys,range(len(user_keys))))
 
         representations = csr_matrix(self.user_reps)
-        import scipy
-        scipy.sparse.save_npz('tifu-instacart.npz', representations)
 
         num_rows, num_cols = representations.shape
-        print(representations.shape)
-        print('start of knn')
+        eprint(representations.shape)
+        eprint('start of knn', )
         if self.mode == 'caboose':
             self.caboose = caboose.Index(num_rows, num_cols, representations.indptr,
                                          representations.indices, representations.data,
@@ -120,7 +120,7 @@ class TIFUKNN(NBRBase):
             nbrs = NearestNeighbors(n_neighbors=self.k+1, algorithm='brute',metric =self.distance_metric).fit(user_reps)
             distances, indices = nbrs.kneighbors(user_reps)
             self.nn_indices = indices
-        print('knn finished')
+        eprint('knn finished')
 
         
     def forget_interactions(self,user_item_pairs):
@@ -134,7 +134,7 @@ class TIFUKNN(NBRBase):
             self.train_baskets = self.train_baskets[~self.train_baskets['user_item'].isin(user_item_pairs)]
             self.train_baskets.drop('user_item', axis=1, inplace=True)
             self.train()
-            
+
     def predict_for_user(self, user_key, how_many):
         i = self.user_keys.index(user_key)
         user = self.user_keys[i]
@@ -149,8 +149,9 @@ class TIFUKNN(NBRBase):
             user_nns = self.caboose.topk(i)
             for neighbor, _ in user_nns:
                 nn_rep += self.user_reps[neighbor]
-        self.all_user_nns[user] =  user_nns
-        nn_rep /= len(user_nns)
+        self.all_user_nns[user] = user_nns
+        if len(user_nns) > 0:
+            nn_rep /= len(user_nns)
 
         final_rep = (user_rep * self.alpha + (1-self.alpha) * nn_rep).tolist()
         final_rep_sorted = sorted(range(len(final_rep)), key=lambda k: final_rep[k], reverse=True)
@@ -177,7 +178,7 @@ class TIFUKNN(NBRBase):
                 user_nns = self.caboose.topk(i)
                 for neighbor, _ in user_nns:
                     nn_rep += self.user_reps[neighbor]
-            self.all_user_nns[user] =  user_nns
+            self.all_user_nns[user] = user_nns
             nn_rep /= len(user_nns)
 
             final_rep = (user_rep * self.alpha + (1-self.alpha) * nn_rep).tolist()
