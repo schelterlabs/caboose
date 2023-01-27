@@ -44,11 +44,11 @@ ks = [10, 50, 100]
 
 for _ in range(0, num_repetitions):
     for k in ks:
-        compare("tifu-instacart.npz", k)
-        compare("../caboose_index/pernir-instacart.npz", k)
-        compare("synthetic-10000-50000-0.02.npz", k)
-        compare("../caboose_index/movielens10m-raw.npz", k)
-        compare("../caboose_index/lastfm-raw.npz", k)
-        compare("synthetic-100000-50000-0.01.npz", k)
+        #compare("tifu-instacart.npz", k)
+        #compare("../caboose_index/pernir-instacart.npz", k)
+        #compare("synthetic-10000-50000-0.02.npz", k)
+        #compare("../caboose_index/movielens10m-raw.npz", k)
+        #compare("../caboose_index/lastfm-raw.npz", k)
+        #compare("synthetic-100000-50000-0.01.npz", k)
         compare("../caboose_index/spotify-raw.npz", k)
         compare("../caboose_index/yahoosongs-raw.npz", k)
