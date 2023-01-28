@@ -87,14 +87,15 @@ class Pernir:
                     self.user_neighbors[user].append(rev_user_dic[other_index])
                     self.user_sim_dict[(user, rev_user_dic[other_index])] = similarity
         elif self.mode == 'similaripy':
-            userSim = similaripy.cosine(csr_matrix(userItem_mat), k=50)
+            userSim = similaripy.cosine(csr_matrix(userItem_mat), k=50+1)
             this_user_sim_dict = dict(userSim.todok().items()) # convert to dictionary of keys format
             for key in this_user_sim_dict:
                 self.user_sim_dict[(rev_user_dic[key[0]],rev_user_dic[key[1]])] = np.float32(this_user_sim_dict[key])
             for key in self.user_sim_dict:
                 if key[0] not in self.user_neighbors:
                     self.user_neighbors[key[0]] = []
-                self.user_neighbors[key[0]].append(key[1])
+                if key[0] != key[1]:
+                    self.user_neighbors[key[0]].append(key[1])
         print('knn finished')
 
 
