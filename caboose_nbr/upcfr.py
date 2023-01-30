@@ -37,7 +37,17 @@ class UPCFr(NBRBase):
         self.data['uid'] = self.data['user_id'].rank(method='dense')-1
         self.data['pid'] = self.data['item_id'].rank(method='dense')-1
         self.n_items = len(valid_items)
+        
+        
+        self.user_id_map = self.data[['user_id','uid']].drop_duplicates()
+        self.user_id_map_dict = dict(zip(self.user_id_map['user_id'],self.user_id_map['uid'].astype(int)))
+
+        self.item_id_map = self.data[['item_id','pid']].drop_duplicates()
+        self.item_id_map_dict_rev = dict(zip(self.item_id_map['pid'].astype(int),self.item_id_map['item_id']))
+        self.item_id_map_dict = dict(zip(self.item_id_map['item_id'],self.item_id_map['pid'].astype(int)))
+        
         self.UWP_sparse = self.uwPopMat()
+        
         
     def uwPopMat(self):
         '''
@@ -48,7 +58,7 @@ class UPCFr(NBRBase):
           Return :
               User-wise Popularity matrix in csr sparse format
         '''
-        n_users = self.data.user_id.unique().shape[0]
+        n_users = len(self.user_id_map_dict)#self.data.user_id.unique().shape[0]
         if (self.r>0):
             # Get the number of user baskets Bu
             BUCount = self.data.groupby(['uid'])['order_number'].max().reset_index(name='Bu')
@@ -82,7 +92,7 @@ class UPCFr(NBRBase):
         return sparse.csr_matrix(UWP_mat)
 
     def train(self):
-        n_users = self.data['uid'].unique().shape[0]
+        n_users = len(self.user_id_map_dict)#n_users = self.data['uid'].unique().shape[0]
         df_user_item = self.data.groupby(['uid','pid']).size().reset_index(name="bool")[['uid','pid']]
         # Generate the User_item matrix using the parse matrix COOrdinate format.
         userItem_mat = sparse.coo_matrix((np.ones((df_user_item.shape[0])), (df_user_item.uid.values, df_user_item.pid.values)), shape=(n_users,self.n_items))
@@ -96,41 +106,46 @@ class UPCFr(NBRBase):
             self.caboose = caboose.Index(n_users, self.n_items, representations.indptr,
                                     representations.indices, representations.data,
                                     1000)
-            '''
-            here: use caboose to get the equivalent of self.userSim retured by similaripy
-            '''
             
+    def forget_interactions(self,user_item_pairs):
+        self.data['user_item'] = self.data.apply(lambda x: [x['user_id'],x['item_id']],axis = 1)
+        self.data = self.data[~self.data['user_item'].isin(user_item_pairs)]
+        self.data.drop('user_item', axis=1, inplace=True)
+        self.UWP_sparse = self.uwPopMat()
         
+        if self.mode == 'caboose':
+            for user,item in user_item_pairs:
+                if item in self.item_id_map_dict and user in self.user_id_map_dict:
+                    self.caboose.forget(self.user_id_map_dict[user],self.item_id_map_dict[item])
+        elif self.mode == 'similaripy':
+            self.train()
+            
+       
     def predict(self):
         ret_dict = {}
 
-        user_id_map = self.data[['user_id','uid']].drop_duplicates()
-        user_id_map_dict = dict(zip(user_id_map['user_id'],user_id_map['uid'].astype(int)))
-
-        item_id_map = self.data[['item_id','pid']].drop_duplicates()
-        item_id_map_dict = dict(zip(item_id_map['pid'].astype(int),item_id_map['item_id']))
         
         # recommend k items to users
         if self.mode == 'similaripy':
             self.user_recommendations = sim.dot_product(self.userSim.power(self.q), self.UWP_sparse, k=50).toarray()
         
-            for user in user_id_map_dict:
-                uid = user_id_map_dict[user]
+            for user in self.user_id_map_dict:
+                uid = self.user_id_map_dict[user]
                 item_scores = self.user_recommendations[uid]
                 top_indices =  item_scores.argsort()[-50:][::-1]
-                top_items = [item_id_map_dict[x] for x in top_indices]
+                top_items = [self.item_id_map_dict_rev[x] for x in top_indices]
                 ret_dict[user] = top_items
             
         elif self.mode == 'caboose':
-            for user in user_id_map_dict:
-                uid = user_id_map_dict[user]
-                item_scores = np.zeros((1,len(item_id_map_dict)))
+            for user in self.user_id_map_dict:
+                uid = self.user_id_map_dict[user]
+                item_scores = np.zeros((1,len(self.item_id_map_dict)))
                 for index, similarity in self.caboose.topk(uid):
                     sim_q = math.pow(similarity,self.q)
                     neighbor = self.UWP_sparse.getrow(index).toarray()
                     item_scores += sim_q * neighbor
                 top_indices =  item_scores.flatten().argsort()[-50:][::-1]
-                top_items = [item_id_map_dict[x] for x in top_indices]
+                top_items = [self.item_id_map_dict_rev[x] for x in top_indices]
                 ret_dict[user] = top_items
                     
 
