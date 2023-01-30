@@ -167,7 +167,43 @@ class Pernir:
 
         return final_item_scores
 
+    def predict_for_user(self, user, how_many):
+        personal_scores = self.user_predictions(user, [])
+        neighbor_scores = {}
+        for neighbor in self.user_neighbors[user]:
+            if neighbor == user:
+                continue
+            scores = self.user_predictions(neighbor, [])
+            neighbor_scores[neighbor] = scores
 
+        agg_neighbor_scores = {}
+        norm_term = {}
+        for neighbor in neighbor_scores:
+            sim = self.user_sim_dict[(user, neighbor)]
+            item_scores = neighbor_scores[neighbor]
+            for item in item_scores:
+                if item not in agg_neighbor_scores:
+                    agg_neighbor_scores[item] = 0
+                    norm_term[item] = 0
+                agg_neighbor_scores[item] += item_scores[item] * sim
+                norm_term[item] += sim
+
+        beta1 = 0.3
+        beta2 = (1-beta1)
+        final_item_scores = {}
+        for item in personal_scores:
+            final_item_scores[item] = beta1 * personal_scores[item]
+
+        for item in agg_neighbor_scores:
+            if item not in final_item_scores:
+                final_item_scores[item] = 0
+            final_item_scores[item] += beta2 * (float(agg_neighbor_scores[item])/float(len(neighbor_scores)))
+
+        sorted_item_scores = sorted(final_item_scores.items(),key= lambda x:x[1], reverse=True)
+        predicted_items = [x[0] for x in sorted_item_scores[:how_many]]
+        predicted_items_scores = [x[1] for x in sorted_item_scores[:how_many]]
+
+        return predicted_items, predicted_items_scores
 
     def predict(self):
         test_inputs = self.test_samples['input_items'].apply(eval).tolist()
@@ -222,4 +258,4 @@ class Pernir:
             
             predictions.append(predicted_items)
             prediction_scores.append(predicted_items_scores)
-        return predictions,prediction_scores
+        return predictions, prediction_scores
