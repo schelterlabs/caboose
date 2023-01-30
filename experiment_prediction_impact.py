@@ -2,13 +2,19 @@ import sys
 import pandas as pd
 import numpy as np
 from caboose_nbr.tifuknn import TIFUKNN
+from caboose_nbr.pernir import Pernir
+from tqdm import tqdm
 
+pd.options.mode.chained_assignment = None
 
 def eprint(*args):
     print(*args, file=sys.stderr)
 
 
-def evaluate_impact_on_instacart(description, sensitive_aisles, sample_size, seed):
+def evaluate_impact_on_instacart(model_to_test, description, sensitive_aisles, sample_size, seed):
+
+    eprint(f'# Running: {model_to_test},{description},{seed},{sample_size}')
+
     np.random.seed(seed)
 
     train_baskets = pd.read_csv('data/instacart_30k/train_baskets.csv.gz')
@@ -35,15 +41,22 @@ def evaluate_impact_on_instacart(description, sensitive_aisles, sample_size, see
 
     nonbaby_users = np.array(np.random.choice(all_nonbaby_users, sample_size))
 
-    eprint(f'Sens: {len(baby_users)}, not sens: {len(nonbaby_users)}')
+    #eprint(f'Sens: {len(baby_users)}, not sens: {len(nonbaby_users)}')
 
     users = np.concatenate((baby_users, nonbaby_users))
     sampled_train_baskets = train_baskets[train_baskets['user_id'].isin(users)]
     sampled_test_baskets = test_baskets[test_baskets['user_id'].isin(users)]
     sampled_valid_baskets = valid_baskets[valid_baskets['user_id'].isin(users)]
 
-    tifu_caboose = TIFUKNN(sampled_train_baskets, sampled_test_baskets, sampled_valid_baskets, 'caboose')
-    tifu_caboose.train()
+    if model_to_test == 'tifu':
+        model = TIFUKNN(sampled_train_baskets, sampled_test_baskets, sampled_valid_baskets, 'caboose')
+    elif model_to_test == 'pernir':
+        model = Pernir(sampled_train_baskets, [], 'caboose')
+    else:
+        eprint("Unknown model...")
+        sys.exit(-1)
+
+    model.train()
 
     baby_items = set(baby_baskets.item_id.unique())
 
@@ -51,8 +64,8 @@ def evaluate_impact_on_instacart(description, sensitive_aisles, sample_size, see
     num_empty_afterwards = 0
     num_failing_users = 0
 
-    for user in baby_users:
-        predictions = tifu_caboose.predict_for_user(user, 10)
+    for user in tqdm(baby_users):
+        predictions = model.predict_for_user(user, 10)
         predicted_baby_items = set(predictions) & baby_items
         has_baby_items = len(predicted_baby_items) > 0
         if has_baby_items:
@@ -60,8 +73,8 @@ def evaluate_impact_on_instacart(description, sensitive_aisles, sample_size, see
             chosen_users_baby_items = set(chosen_users_items) & baby_items
 
             to_forget = [(user, item) for item in chosen_users_baby_items]
-            tifu_caboose.forget_interactions(to_forget)
-            predictions_after_forget = tifu_caboose.predict_for_user(user, 10)
+            model.forget_interactions(to_forget)
+            predictions_after_forget = model.predict_for_user(user, 10)
             remaining_baby_items = set(predictions_after_forget) & baby_items
 
             num_affected_users += 1
@@ -72,7 +85,7 @@ def evaluate_impact_on_instacart(description, sensitive_aisles, sample_size, see
             if len(predictions_after_forget) == 0:
                 num_empty_afterwards += 1
 
-    print(f'PREDICTION_IMPACT,{description},{seed},{sample_size},{num_affected_users},{num_failing_users},{num_empty_afterwards}')
+    print(f'PREDICTION_IMPACT,{model_to_test},{description},{seed},{sample_size},{num_affected_users},{num_failing_users},{num_empty_afterwards}')
 
 #5,marinades meat preparation
 #95,canned meat seafood
@@ -97,8 +110,9 @@ meat_aisles = [5, 15, 33, 34, 35, 49, 95, 96, 106, 122]
 alcohol_aisles = [27, 28, 62, 124, 134]
 sample_size = 1000
 
-for desc, sensitive in [('baby', baby_aisles), ('meat', meat_aisles), ('alcohol', alcohol_aisles)]:
-    for seed in [43, 1312, 1234, 789, 1000, 7334, 7]:
-        evaluate_impact_on_instacart(desc, sensitive, sample_size, seed)
+for model_to_test in ['pernir', 'tifu']:
+    for desc, sensitive in [('baby', baby_aisles), ('meat', meat_aisles), ('alcohol', alcohol_aisles)]:
+        for seed in [43, 1312, 1234, 789, 1000, 7334, 7]:
+            evaluate_impact_on_instacart(model_to_test, desc, sensitive, sample_size, seed)
 
 

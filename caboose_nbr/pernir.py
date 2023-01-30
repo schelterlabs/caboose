@@ -108,11 +108,12 @@ class Pernir:
                     self.user_neighbors[key[0]].append(key[1])
         print('knn finished')
 
-    def forget_interactions(self,user_item_pairs):
-        
-        self.train_baskets['user_item'] = self.train_baskets.apply(lambda x: [x['user_id'],x['item_id']],axis = 1)
+    def forget_interactions(self, user_item_pairs):
+
+        self.train_baskets['user_item'] = self.train_baskets.apply(lambda x: (x['user_id'], x['item_id']), axis=1)
         self.train_baskets = self.train_baskets[~self.train_baskets['user_item'].isin(user_item_pairs)]
         self.train_baskets.drop('user_item', axis=1, inplace=True)
+
 
         self.compute_basket_dicts()
         
@@ -201,9 +202,8 @@ class Pernir:
 
         sorted_item_scores = sorted(final_item_scores.items(),key= lambda x:x[1], reverse=True)
         predicted_items = [x[0] for x in sorted_item_scores[:how_many]]
-        predicted_items_scores = [x[1] for x in sorted_item_scores[:how_many]]
 
-        return predicted_items, predicted_items_scores
+        return predicted_items
 
     def predict(self):
         test_inputs = self.test_samples['input_items'].apply(eval).tolist()
