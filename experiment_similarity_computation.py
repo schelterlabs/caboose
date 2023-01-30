@@ -21,7 +21,7 @@ def compare(npz_file, k, large=False):
 
     num_rows, num_columns = A.shape
     nnz = A.nnz
-
+1
     start_time = datetime.now()
     _ = sim.cosine(A, k=k)
     end_time = datetime.now()
