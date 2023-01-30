@@ -16,8 +16,23 @@ class Pernir:
         self.user_index = user_index
         self.batch_size = 10000
         self.mode = mode
-
-    def train(self):
+        
+        all_items = set(self.train_baskets['item_id'].tolist())
+        all_users = set(self.train_baskets['user_id'].tolist())
+        self.item_dic = {}
+        self.rev_item_dic = {}
+        for i, item in enumerate(all_items):
+            self.item_dic[item] = i
+            self.rev_item_dic[i] = item
+        self.user_dic = {}
+        self.rev_user_dic = {}
+        for i, user in enumerate(all_users):
+            self.user_dic[user] = i
+            self.rev_user_dic[i] = user
+        
+        self.compute_basket_dicts()
+        
+    def compute_basket_dicts(self):
         baskets_df = self.train_baskets[['basket_id', 'item_id', 'add_to_cart_order']].drop_duplicates()
         basket_items = baskets_df.sort_values(['basket_id', 'add_to_cart_order']).groupby(['basket_id'])['item_id'] \
             .apply(list).reset_index(name='items')
@@ -27,6 +42,8 @@ class Pernir:
         user_baskets = user_baskets_df.groupby(['user_id'])['basket_id'].apply(list) \
             .reset_index(name='baskets')
         self.user_baskets_dict = dict(zip(user_baskets['user_id'],user_baskets['baskets']))
+        
+    def train(self):
 
         item_base_scores = {}
         for user in self.user_baskets_dict:
@@ -56,41 +73,34 @@ class Pernir:
 
         df_users = set(df['user'].tolist())
         df_items = set(df['item'].tolist())
-        item_dic = {}
-        rev_item_dic = {}
-        for i, item in enumerate(df_items):
-            item_dic[item] = i
-            rev_item_dic[i] = item
-        user_dic = {}
-        rev_user_dic = {}
-        for i, user in enumerate(df_users):
-            user_dic[user] = i
-            rev_user_dic[i] = user
 
-        df['uid'] = df['user'].apply(lambda x: user_dic[x])
-        df['pid'] = df['item'].apply(lambda x: item_dic[x])
 
-        n_users = len(set(df['user'].tolist()))
-        n_items = len(set(df['item'].tolist()))
+        df['uid'] = df['user'].apply(lambda x: self.user_dic[x])
+        df['pid'] = df['item'].apply(lambda x: self.item_dic[x])
+
+        n_users = len(self.user_dic)
+        n_items = len(self.item_dic)
 
         userItem_mat = coo_matrix((df.score.values, (df.uid.values, df.pid.values)), shape=(n_users, n_items))
         representations = csr_matrix(userItem_mat)
         
         print('start of knn')
         if self.mode == 'caboose':
-            similarities = caboose.Index(n_users, n_items, representations.indptr,
+            self.caboose = caboose.Index(n_users, n_items, representations.indptr,
                                     representations.indices, representations.data,
                                     50)
-            for index, user in rev_user_dic.items():
+            for index, user in self.rev_user_dic.items():
                 self.user_neighbors[user] = []
-                for other_index, similarity in similarities.topk(index):
-                    self.user_neighbors[user].append(rev_user_dic[other_index])
-                    self.user_sim_dict[(user, rev_user_dic[other_index])] = similarity
+                for other_index, similarity in self.caboose.topk(index):
+                    self.user_neighbors[user].append(self.rev_user_dic[other_index])
+                    self.user_sim_dict[(user, self.rev_user_dic[other_index])] = similarity
         elif self.mode == 'similaripy':
+            self.user_neighbors = {}
+            self.user_sim_dict = {}
             userSim = similaripy.cosine(csr_matrix(userItem_mat), k=50+1)
             this_user_sim_dict = dict(userSim.todok().items()) # convert to dictionary of keys format
             for key in this_user_sim_dict:
-                self.user_sim_dict[(rev_user_dic[key[0]],rev_user_dic[key[1]])] = np.float32(this_user_sim_dict[key])
+                self.user_sim_dict[(self.rev_user_dic[key[0]],self.rev_user_dic[key[1]])] = np.float32(this_user_sim_dict[key])
             for key in self.user_sim_dict:
                 if key[0] not in self.user_neighbors:
                     self.user_neighbors[key[0]] = []
@@ -98,6 +108,25 @@ class Pernir:
                     self.user_neighbors[key[0]].append(key[1])
         print('knn finished')
 
+    def forget_interactions(self,user_item_pairs):
+        
+        self.train_baskets['user_item'] = self.train_baskets.apply(lambda x: [x['user_id'],x['item_id']],axis = 1)
+        self.train_baskets = self.train_baskets[~self.train_baskets['user_item'].isin(user_item_pairs)]
+        self.train_baskets.drop('user_item', axis=1, inplace=True)
+
+        self.compute_basket_dicts()
+        
+        if self.mode == 'caboose':
+            for user,item in user_item_pairs:
+                if item in self.item_dic and user in self.user_dic:
+                    self.caboose.forget(self.user_dic[user],self.item_dic[item])
+            for index, user in self.rev_user_dic.items():
+                self.user_neighbors[user] = []
+                for other_index, similarity in self.caboose.topk(index):
+                    self.user_neighbors[user].append(self.rev_user_dic[other_index])
+                    self.user_sim_dict[(user, self.rev_user_dic[other_index])] = similarity
+        if self.mode == 'similaripy':
+            self.train()
 
 
     def user_predictions(self,user, input_items):
@@ -153,10 +182,6 @@ class Pernir:
             user = test_users[i]
             input_items = test_inputs[i]
             current_items_len = len(input_items)
-            
-            
-            #f_c = self.selection_vector(input_items, num_items).tocsc(copy=True)
-            #scores = alpha * h_s_u_opt + (1-alpha) * C_s_u_opt * f_c
 
             
             
