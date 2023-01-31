@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from caboose_nbr.tifuknn import TIFUKNN
 from caboose_nbr.pernir import Pernir
+from caboose_nbr.upcfr import UPCFr
 from tqdm import tqdm
 
 pd.options.mode.chained_assignment = None
@@ -52,6 +53,8 @@ def evaluate_impact_on_instacart(model_to_test, description, sensitive_aisles, s
         model = TIFUKNN(sampled_train_baskets, sampled_test_baskets, sampled_valid_baskets, 'caboose')
     elif model_to_test == 'pernir':
         model = Pernir(sampled_train_baskets, [], 'caboose')
+    elif model_to_test == 'upcfr':
+        model = UPCFr(sampled_train_baskets, sampled_test_baskets, sampled_valid_baskets, mode='caboose')
     else:
         eprint("Unknown model...")
         sys.exit(-1)
@@ -110,7 +113,7 @@ meat_aisles = [5, 15, 33, 34, 35, 49, 95, 96, 106, 122]
 alcohol_aisles = [27, 28, 62, 124, 134]
 sample_size = 1000
 
-for model_to_test in ['pernir', 'tifu']:
+for model_to_test in ['upcfr', 'pernir', 'tifu']:
     for desc, sensitive in [('baby', baby_aisles), ('meat', meat_aisles), ('alcohol', alcohol_aisles)]:
         for seed in [43, 1312, 1234, 789, 1000, 7334, 7]:
             evaluate_impact_on_instacart(model_to_test, desc, sensitive, sample_size, seed)

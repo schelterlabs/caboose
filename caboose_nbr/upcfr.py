@@ -84,9 +84,9 @@ class UPCFr(NBRBase):
         df_UWpop =  tmp[['uid','pid','Score']]
         del tmp
         # Generate user-wise popularity matrix in COOrdinate format
-        print(df_UWpop.nunique())
-        print(df_UWpop.shape)
-        print(n_users,self.n_items)
+        #print(df_UWpop.nunique())
+        #print(df_UWpop.shape)
+        #print(n_users,self.n_items)
         UWP_mat = sparse.coo_matrix((df_UWpop.Score.values, (df_UWpop.uid.values, df_UWpop.pid.values)), shape=(n_users,self.n_items))
         del df_UWpop
         return sparse.csr_matrix(UWP_mat)
@@ -98,19 +98,22 @@ class UPCFr(NBRBase):
         userItem_mat = sparse.coo_matrix((np.ones((df_user_item.shape[0])), (df_user_item.uid.values, df_user_item.pid.values)), shape=(n_users,self.n_items))
         # Calculate the asymmetric similarity cosine matrix
         if self.mode == 'similaripy':
-            self.userSim = sim.cosine(sparse.csr_matrix(userItem_mat), k=1000)
+            self.userSim = sim.cosine(sparse.csr_matrix(userItem_mat), k=50)
             self.userSim.setdiag(0)
             print('usersim shape',self.userSim.shape)
         elif self.mode == 'caboose':
             representations = sparse.csr_matrix(userItem_mat)
             self.caboose = caboose.Index(n_users, self.n_items, representations.indptr,
                                     representations.indices, representations.data,
-                                    1000)
+                                    50)
             
     def forget_interactions(self,user_item_pairs):
-        self.data['user_item'] = self.data.apply(lambda x: [x['user_id'],x['item_id']],axis = 1)
+
+        #self.data['user_item'] = self.data.apply(lambda x: [x['user_id'],x['item_id']],axis = 1)
+        self.data['user_item'] = self.data.apply(lambda x: (x['user_id'],x['item_id']),axis = 1)
         self.data = self.data[~self.data['user_item'].isin(user_item_pairs)]
         self.data.drop('user_item', axis=1, inplace=True)
+
         self.UWP_sparse = self.uwPopMat()
         
         if self.mode == 'caboose':
@@ -120,7 +123,18 @@ class UPCFr(NBRBase):
         elif self.mode == 'similaripy':
             self.train()
             
-       
+    def predict_for_user(self, user, how_many):
+
+        uid = self.user_id_map_dict[user]
+        item_scores = np.zeros((1,len(self.item_id_map_dict)))
+        for index, similarity in self.caboose.topk(uid):
+            sim_q = math.pow(similarity,self.q)
+            neighbor = self.UWP_sparse.getrow(index).toarray()
+            item_scores += sim_q * neighbor
+        top_indices =  item_scores.flatten().argsort()[-50:][::-1]
+        top_items = [self.item_id_map_dict_rev[x] for x in top_indices]
+        return top_items[:how_many]
+
     def predict(self):
         ret_dict = {}
 
@@ -128,14 +142,14 @@ class UPCFr(NBRBase):
         # recommend k items to users
         if self.mode == 'similaripy':
             self.user_recommendations = sim.dot_product(self.userSim.power(self.q), self.UWP_sparse, k=50).toarray()
-        
+
             for user in self.user_id_map_dict:
                 uid = self.user_id_map_dict[user]
                 item_scores = self.user_recommendations[uid]
                 top_indices =  item_scores.argsort()[-50:][::-1]
                 top_items = [self.item_id_map_dict_rev[x] for x in top_indices]
                 ret_dict[user] = top_items
-            
+
         elif self.mode == 'caboose':
             for user in self.user_id_map_dict:
                 uid = self.user_id_map_dict[user]

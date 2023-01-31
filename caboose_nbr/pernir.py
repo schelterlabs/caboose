@@ -131,6 +131,10 @@ class Pernir:
 
 
     def user_predictions(self,user, input_items):
+
+        if user not in self.user_baskets_dict:
+            return {}
+
         baskets = self.user_baskets_dict[user]
         basket_len = len(baskets)
 
