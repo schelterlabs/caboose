@@ -99,13 +99,13 @@ class UPCFr(NBRBase):
         # Calculate the asymmetric similarity cosine matrix
         if self.mode == 'similaripy':
             self.userSim = sim.cosine(sparse.csr_matrix(userItem_mat), k=50)
-            self.userSim.setdiag(0)
+            #self.userSim.setdiag(0)
             print('usersim shape',self.userSim.shape)
         elif self.mode == 'caboose':
             representations = sparse.csr_matrix(userItem_mat)
             self.caboose = caboose.Index(n_users, self.n_items, representations.indptr,
                                     representations.indices, representations.data,
-                                    50)
+                                    49)
             
     def forget_interactions(self,user_item_pairs):
 
@@ -126,7 +126,7 @@ class UPCFr(NBRBase):
     def predict_for_user(self, user, how_many):
 
         uid = self.user_id_map_dict[user]
-        item_scores = np.zeros((1,len(self.item_id_map_dict)))
+        item_scores = self.UWP_sparse.getrow(uid).toarray()
         for index, similarity in self.caboose.topk(uid):
             sim_q = math.pow(similarity,self.q)
             neighbor = self.UWP_sparse.getrow(index).toarray()
@@ -153,8 +153,9 @@ class UPCFr(NBRBase):
         elif self.mode == 'caboose':
             for user in self.user_id_map_dict:
                 uid = self.user_id_map_dict[user]
-                item_scores = np.zeros((1,len(self.item_id_map_dict)))
-                for index, similarity in self.caboose.topk(uid):
+                item_scores = self.UWP_sparse.getrow(uid).toarray()
+                neighbors = self.caboose.topk(uid)
+                for index, similarity in neighbors:
                     sim_q = math.pow(similarity,self.q)
                     neighbor = self.UWP_sparse.getrow(index).toarray()
                     item_scores += sim_q * neighbor
