@@ -44,7 +44,7 @@ def compare(npz_file, k, large=False):
         print(f'INDEX_BUILDING,{npz_file},{num_rows},{num_columns},{nnz},{k},caboose,{duration}')
 
 
-num_repetitions = 3
+num_repetitions = 7
 ks = [10, 50, 100]
 
 for _ in range(0, num_repetitions):
